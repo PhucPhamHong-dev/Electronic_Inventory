@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE partners
+  ADD COLUMN IF NOT EXISTS tax_code VARCHAR(64);
+
+COMMIT;

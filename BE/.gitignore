@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-ssr
+.env
+.env.*
+!.env.example
+coverage
+*.log
+tmp
+build
+.DS_Store
+pnpm-lock.yaml
+yarn.lock
+src/logs/*
+!src/logs/.gitkeep
+tmp/pdfs/*
+!tmp/pdfs/.gitkeep
