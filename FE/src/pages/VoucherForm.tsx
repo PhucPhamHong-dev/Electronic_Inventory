@@ -763,42 +763,29 @@ export function VoucherFormPage() {
                 <Table.Summary.Cell index={1} align="right">
                   <Typography.Text strong>{formatNumber(totals.totalQuantity)}</Typography.Text>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={2} colSpan={8} />
-                <Table.Summary.Cell index={3} align="right">
-                  <Typography.Text strong>{formatCurrency(totals.totalNetAmount)}</Typography.Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={4} />
-              </Table.Summary.Row>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={10} align="right">
-                  <Typography.Text strong>Cộng tiền hàng</Typography.Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right">
-                  <Typography.Text strong>{formatCurrency(totals.totalAmount)}</Typography.Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={2} />
-              </Table.Summary.Row>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={10} align="right">
-                  <Typography.Text strong>Tiền thuế GTGT</Typography.Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right">
-                  <Typography.Text strong>{formatCurrency(totals.totalTaxAmount)}</Typography.Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={2} />
-              </Table.Summary.Row>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={10} align="right">
-                  <Typography.Text strong>Tổng tiền thanh toán</Typography.Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right">
-                  <Typography.Text strong>{formatCurrency(totals.totalNetAmount)}</Typography.Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={2} />
+                <Table.Summary.Cell index={2} colSpan={9} />
               </Table.Summary.Row>
             </Table.Summary>
           )}
         />
+        <div className="voucher-summary-block-wrap">
+          <div className="voucher-summary-block">
+            <Row justify="space-between" className="voucher-summary-row">
+              <Typography.Text>Cộng tiền hàng</Typography.Text>
+              <Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalAmount)}</Typography.Text>
+            </Row>
+            <Row justify="space-between" className="voucher-summary-row">
+              <Typography.Text>Tiền thuế GTGT</Typography.Text>
+              <Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalTaxAmount)}</Typography.Text>
+            </Row>
+            <Row justify="space-between" className="voucher-summary-row voucher-summary-row-total">
+              <Typography.Text strong>Tổng tiền thanh toán</Typography.Text>
+              <Typography.Text strong className="voucher-summary-value voucher-summary-value-total">
+                {formatCurrency(totals.totalNetAmount)}
+              </Typography.Text>
+            </Row>
+          </div>
+        </div>
 
         {!canViewCostPrice ? (
           <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>

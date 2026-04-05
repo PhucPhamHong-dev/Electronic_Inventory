@@ -192,6 +192,17 @@ function ensurePageSpace(doc: PDFDocument, requiredHeight: number): void {
   }
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function roundColumnWidths(widths: number[]): number[] {
+  const rounded = widths.map((value) => Math.floor(value));
+  const used = rounded.reduce((sum, value) => sum + value, 0);
+  rounded[rounded.length - 1] += CONTENT_WIDTH - used;
+  return rounded;
+}
+
 function computeInvoice(voucher: VoucherPdfVoucher): InvoiceCalculatedData {
   const rows: InvoiceCalculatedRow[] = voucher.items.map((item) => {
     const quantity = Number.isFinite(item.quantity) ? item.quantity : 0;
@@ -255,33 +266,117 @@ function drawHeader(doc: PDFDocument, voucher: VoucherPdfVoucher, title: string)
   });
 }
 
-function drawPartnerInfo(doc: PDFDocument, voucher: VoucherPdfVoucher, partnerLabel: string): void {
+function drawPartnerInfo(doc: PDFDocument, voucher: VoucherPdfVoucher, partnerLabel: string): number {
   const startY = 122;
   const partnerName = voucher.partner.name || "";
   const partnerAddress = voucher.partner.address || "";
   const partnerPhone = voucher.partner.phone || "";
+  const leftWidth = CONTENT_WIDTH * 0.63;
+  const rightWidth = CONTENT_WIDTH - leftWidth;
+  const partnerText = `${partnerLabel}: ${partnerName}`;
+  const phoneText = `Điện thoại: ${partnerPhone}`;
+  const addressText = `Địa chỉ: ${partnerAddress}`;
 
-  doc.font("Bold").fontSize(11).text(`${partnerLabel}: ${partnerName}`, PAGE_MARGIN, startY, {
-    width: CONTENT_WIDTH * 0.65,
+  doc.font("Bold").fontSize(11);
+  const partnerHeight = doc.heightOfString(partnerText, {
+    width: leftWidth - 10,
     align: "left"
   });
-  doc.font("Bold").fontSize(11).text(`Điện thoại: ${partnerPhone}`, PAGE_MARGIN + CONTENT_WIDTH * 0.65, startY, {
-    width: CONTENT_WIDTH * 0.35,
+  const phoneHeight = doc.heightOfString(phoneText, {
+    width: rightWidth,
     align: "left"
   });
 
-  doc.font("Bold").fontSize(11).text(`Địa chỉ: ${partnerAddress}`, PAGE_MARGIN, startY + 20, {
+  doc.text(partnerText, PAGE_MARGIN, startY, {
+    width: leftWidth - 10,
+    align: "left"
+  });
+  doc.text(phoneText, PAGE_MARGIN + leftWidth, startY, {
+    width: rightWidth,
+    align: "left"
+  });
+
+  const addressY = startY + Math.max(partnerHeight, phoneHeight) + 8;
+  const addressHeight = doc.heightOfString(addressText, {
     width: CONTENT_WIDTH,
     align: "left"
   });
+
+  doc.text(addressText, PAGE_MARGIN, addressY, {
+    width: CONTENT_WIDTH,
+    align: "left"
+  });
+
+  return addressY + addressHeight + 14;
 }
 
-async function drawItemsTable(doc: PDFDocument, rows: InvoiceCalculatedRow[]): Promise<void> {
-  const tableTop = 176;
-  const ratios = [0.05, 0.4, 0.1, 0.1, 0.15, 0.06, 0.08, 0.06];
-  const columnsSize = ratios.map((ratio) => Math.floor(CONTENT_WIDTH * ratio));
-  const used = columnsSize.reduce((sum, value) => sum + value, 0);
-  columnsSize[columnsSize.length - 1] += CONTENT_WIDTH - used;
+function buildTableColumnWidths(doc: PDFDocument, rows: InvoiceCalculatedRow[]): number[] {
+  const headerFontSize = 9;
+  const rowFontSize = 9;
+  const cellPadding = 10;
+
+  const measureText = (texts: string[], font: "Bold" | "Regular", size: number) => {
+    doc.font(font).fontSize(size);
+    return Math.max(...texts.map((text) => Math.ceil(doc.widthOfString(text || ""))), 0);
+  };
+
+  const headers = ["STT", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "CK (%)", "Đơn giá sau CK", "Thành tiền"];
+  const valuesByColumn = [
+    rows.map((_row, index) => String(index + 1)),
+    rows.map((row) => row.productName),
+    rows.map((row) => row.unit),
+    rows.map((row) => formatQuantity(row.quantity)),
+    rows.map((row) => formatMoney(row.unitPrice)),
+    rows.map((row) => formatPercent(row.discountPercent)),
+    rows.map((row) => formatMoney(row.discountedUnitPrice)),
+    rows.map((row) => formatMoney(row.lineTotal))
+  ];
+
+  const nonNameColumns = [
+    { index: 0, min: 28, max: 40 },
+    { index: 2, min: 48, max: 62 },
+    { index: 3, min: 56, max: 74 },
+    { index: 4, min: 74, max: 94 },
+    { index: 5, min: 44, max: 56 },
+    { index: 6, min: 74, max: 94 },
+    { index: 7, min: 82, max: 108 }
+  ];
+
+  const widths = new Array<number>(headers.length).fill(0);
+  nonNameColumns.forEach(({ index, min, max }) => {
+    const headerWidth = measureText([headers[index]], "Bold", headerFontSize);
+    const valueWidth = measureText(valuesByColumn[index], "Regular", rowFontSize);
+    widths[index] = clamp(Math.max(headerWidth, valueWidth) + cellPadding, min, max);
+  });
+
+  const nameMin = 120;
+  widths[1] = CONTENT_WIDTH - nonNameColumns.reduce((sum, column) => sum + widths[column.index], 0);
+
+  if (widths[1] < nameMin) {
+    let deficit = nameMin - widths[1];
+    const shrinkable = [...nonNameColumns].sort((a, b) => widths[b.index] - widths[a.index]);
+
+    for (const column of shrinkable) {
+      if (deficit <= 0) {
+        break;
+      }
+      const removable = widths[column.index] - column.min;
+      if (removable <= 0) {
+        continue;
+      }
+      const reduction = Math.min(removable, deficit);
+      widths[column.index] -= reduction;
+      deficit -= reduction;
+    }
+
+    widths[1] = CONTENT_WIDTH - nonNameColumns.reduce((sum, column) => sum + widths[column.index], 0);
+  }
+
+  return roundColumnWidths(widths);
+}
+
+async function drawItemsTable(doc: PDFDocument, rows: InvoiceCalculatedRow[], tableTop: number): Promise<void> {
+  const columnsSize = buildTableColumnWidths(doc, rows);
 
   const table = {
     headers: [
@@ -352,14 +447,14 @@ function drawSummaryBlock(
     width: leftWidth - 16,
     underline: true
   });
-  doc.text(formatMoney(oldDebtAmount), PAGE_MARGIN + leftWidth - 120, blockTop + 28, {
-    width: 110,
+  doc.text(formatMoney(oldDebtAmount), PAGE_MARGIN + leftWidth - 138, blockTop + 28, {
+    width: 128,
     align: "right"
   });
 
-  const labelWidth = rightWidth - 95;
-  const valueWidth = 87;
-  doc.text("Cộng tiền hàng (Đã trừ CK)", rightX + 8, blockTop + 8, { width: labelWidth });
+  const labelWidth = rightWidth - 118;
+  const valueWidth = 110;
+  doc.text("Cộng tiền hàng (sau CK)", rightX + 8, blockTop + 8, { width: labelWidth });
   doc.text(formatMoney(calculated.totalBeforeTax), rightX + 8 + labelWidth, blockTop + 8, {
     width: valueWidth,
     align: "right"
@@ -460,8 +555,8 @@ export class PdfService {
     doc.pipe(res);
 
     drawHeader(doc, voucher, "PHIẾU XUẤT KHO BÁN HÀNG");
-    drawPartnerInfo(doc, voucher, "Tên khách hàng");
-    await drawItemsTable(doc, calculated.rows);
+    const tableTop = drawPartnerInfo(doc, voucher, "Tên khách hàng");
+    await drawItemsTable(doc, calculated.rows, tableTop);
     ensurePageSpace(doc, 130);
     drawSummaryBlock(doc, calculated, oldDebtAmount);
     drawSalesNotice(doc);
@@ -487,8 +582,8 @@ export class PdfService {
     doc.pipe(res);
 
     drawHeader(doc, voucher, "PHIẾU NHẬP KHO");
-    drawPartnerInfo(doc, voucher, "Tên nhà cung cấp");
-    await drawItemsTable(doc, calculated.rows);
+    const tableTop = drawPartnerInfo(doc, voucher, "Tên nhà cung cấp");
+    await drawItemsTable(doc, calculated.rows, tableTop);
     ensurePageSpace(doc, 120);
     drawSummaryBlock(doc, calculated, oldDebtAmount);
     ensurePageSpace(doc, 70);

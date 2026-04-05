@@ -1,9 +1,29 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: wms_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wms
+      POSTGRES_USER: wms
+      POSTGRES_PASSWORD: wms_local_2026
+    volumes:
+      - wms_pgdata:/var/lib/postgresql/data
+      - ./BE/database/migrations/001_init_extensions.sql:/docker-entrypoint-initdb.d/001_init_extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wms -d wms"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   be:
     build:
       context: ./BE
     container_name: wms_be
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - ./BE/.env
     environment:
@@ -26,3 +46,6 @@ services:
       - be
     ports:
       - "${WMS_HTTP_PORT:-8088}:80"
+
+volumes:
+  wms_pgdata:
