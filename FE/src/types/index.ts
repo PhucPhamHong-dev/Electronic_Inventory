@@ -1,11 +1,13 @@
 import type { PermissionMap } from "./auth";
 
 export type PartnerTypeValue = "CUSTOMER" | "SUPPLIER" | "BOTH";
+export type PartnerGroupValue = "CUSTOMER" | "SUPPLIER";
 
 export interface IPartner {
   id: string;
   code: string;
   name: string;
+  group?: PartnerGroupValue;
   partnerType: PartnerTypeValue;
   phone?: string | null;
   taxCode?: string | null;

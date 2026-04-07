@@ -1,8 +1,11 @@
 import {
   AuditAction,
   InventoryMovementType,
+  PaymentMethod,
+  PaymentReason,
   PaymentStatus,
   Prisma,
+  QuotationStatus,
   type PrismaClient,
   VoucherStatus,
   VoucherType
@@ -11,12 +14,16 @@ import type { Response } from "express";
 import { prisma } from "../config/db";
 import type {
   AuthenticatedUser,
+  CreateCashVoucherRequest,
   CreateConversionVoucherRequest,
   CreatePurchaseVoucherRequest,
   CreateReceiptVoucherRequest,
+  CreateSalesReturnVoucherRequest,
   CreateSalesVoucherRequest,
   PdfRenderOptions,
+  SalesReturnSettlementMode,
   UpdateVoucherRequest,
+  UnpaidInvoiceItem,
   VoucherItemInput,
   VoucherTransactionResult
 } from "../types";
@@ -57,6 +64,18 @@ interface VoucherPayloadResult {
   totals: VoucherTotals;
   partnerId?: string;
   linkedReceiptVoucherId?: string;
+  linkedCounterVoucherId?: string;
+}
+
+interface CreateVoucherOptions {
+  quotationId?: string;
+  paymentMethod?: PaymentMethod;
+  afterPersist?: (tx: Tx, voucherId: string) => Promise<void>;
+}
+
+interface OriginalSalesItemCost {
+  productId: string;
+  unitCost: number;
 }
 
 interface LineCalculation {
@@ -80,12 +99,18 @@ interface ListVouchersInput {
   search?: string;
 }
 
+interface ListUnpaidInvoicesInput {
+  partnerId: string;
+  type: "SALES" | "PURCHASE";
+}
+
 interface VoucherHistoryItem {
   id: string;
   voucherNo: string | null;
   type: VoucherType;
   status: VoucherStatus;
   paymentStatus: PaymentStatus;
+  paymentMethod: PaymentMethod | null;
   partnerId: string | null;
   partnerName: string | null;
   voucherDate: Date;
@@ -95,11 +120,19 @@ interface VoucherHistoryItem {
   totalNetAmount: number;
   paidAmount: number;
   note: string | null;
+  lastEditedBy: string | null;
+  lastEditedByName: string | null;
+  lastEditedAt: Date | null;
 }
 
 interface ListVouchersResult {
   items: VoucherHistoryItem[];
   total: number;
+  summary: {
+    totalAmount: number;
+    totalTaxAmount: number;
+    totalNetAmount: number;
+  };
 }
 
 const SALES_PERMISSION = "create_sales_voucher";
@@ -135,6 +168,52 @@ export class VoucherService {
       voucherType: VoucherType.SALES,
       payload,
       context
+    });
+  }
+
+  async createSalesReturnVoucher(
+    payload: CreateSalesReturnVoucherRequest,
+    context: ServiceContext
+  ): Promise<VoucherTransactionResult> {
+    this.validateItems(payload.items);
+    requirePermission(context.user.permissions.create_sales_voucher, SALES_PERMISSION);
+    return this.createVoucherWithPayload({
+      voucherType: VoucherType.SALES_RETURN,
+      payload,
+      context
+    });
+  }
+
+  async createSalesVoucherFromQuotation(
+    quotationId: string,
+    payload: CreateSalesVoucherRequest,
+    context: ServiceContext
+  ): Promise<VoucherTransactionResult> {
+    this.validateItems(payload.items);
+    requirePermission(context.user.permissions.create_sales_voucher, SALES_PERMISSION);
+
+    return this.createVoucherWithPayload({
+      voucherType: VoucherType.SALES,
+      payload,
+      context,
+      options: {
+        quotationId,
+        afterPersist: async (tx) => {
+          const marked = await tx.quotation.updateMany({
+            where: {
+              id: quotationId,
+              status: QuotationStatus.PENDING
+            },
+            data: {
+              status: QuotationStatus.APPROVED
+            }
+          });
+
+          if (marked.count === 0) {
+            throw new AppError("Quotation is already approved/rejected or not found", 409, "CONCURRENCY_CONFLICT");
+          }
+        }
+      }
     });
   }
 
@@ -229,6 +308,188 @@ export class VoucherService {
     }
   }
 
+  async createCashVoucher(
+    payload: CreateCashVoucherRequest,
+    context: ServiceContext
+  ): Promise<VoucherTransactionResult> {
+    if (!Number.isFinite(payload.amount) || payload.amount <= 0) {
+      throw new AppError("amount must be greater than 0", 400, "VALIDATION_ERROR");
+    }
+
+    const isReceipt = payload.voucherType === VoucherType.RECEIPT;
+    const isDebtSettlementReason =
+      payload.paymentReason === PaymentReason.CUSTOMER_PAYMENT ||
+      payload.paymentReason === PaymentReason.SUPPLIER_PAYMENT;
+
+    if (isDebtSettlementReason && !payload.partnerId) {
+      throw new AppError("partnerId is required for debt-settlement cash vouchers", 400, "VALIDATION_ERROR");
+    }
+
+    if (payload.paymentReason === PaymentReason.CUSTOMER_PAYMENT && !isReceipt) {
+      throw new AppError("CUSTOMER_PAYMENT must use RECEIPT voucher type", 400, "VALIDATION_ERROR");
+    }
+    if (payload.paymentReason === PaymentReason.SUPPLIER_PAYMENT && payload.voucherType !== VoucherType.PAYMENT) {
+      throw new AppError("SUPPLIER_PAYMENT must use PAYMENT voucher type", 400, "VALIDATION_ERROR");
+    }
+
+    const normalizedAmount = roundTo(payload.amount, 4);
+    const normalizedAllocations = (payload.allocations ?? []).map((item) => ({
+      invoiceId: item.invoiceId,
+      amountApplied: roundTo(item.amountApplied, 4)
+    }));
+    const isInvoiceBased = payload.isInvoiceBased ?? normalizedAllocations.length > 0;
+    const totalApplied = roundTo(
+      normalizedAllocations.reduce((sum, item) => sum + item.amountApplied, 0),
+      4
+    );
+
+    if (isDebtSettlementReason && isInvoiceBased && normalizedAllocations.length === 0) {
+      throw new AppError("allocations are required for debt-settlement cash vouchers", 400, "VALIDATION_ERROR");
+    }
+    if (!isDebtSettlementReason && normalizedAllocations.length > 0) {
+      throw new AppError("allocations are only supported for debt-settlement cash vouchers", 400, "VALIDATION_ERROR");
+    }
+    if (!isInvoiceBased && normalizedAllocations.length > 0) {
+      throw new AppError("allocations are only supported for invoice-based cash vouchers", 400, "VALIDATION_ERROR");
+    }
+    if (normalizedAllocations.some((item) => item.amountApplied <= 0)) {
+      throw new AppError("amountApplied must be greater than 0", 400, "VALIDATION_ERROR");
+    }
+    if (totalApplied > normalizedAmount) {
+      throw new AppError("Total allocation amount cannot exceed voucher amount", 400, "VALIDATION_ERROR");
+    }
+
+    const permission = isReceipt ? SALES_PERMISSION : PURCHASE_PERMISSION;
+    requirePermission(
+      isReceipt ? context.user.permissions.create_sales_voucher : context.user.permissions.create_purchase_voucher,
+      permission
+    );
+
+    const created = await this.db.$transaction(
+      async (tx) => {
+        await this.setTransactionContext(tx, context);
+
+        const invoiceType = isReceipt ? VoucherType.SALES : VoucherType.PURCHASE;
+        if (normalizedAllocations.length > 0) {
+          const invoiceIds = normalizedAllocations.map((item) => item.invoiceId);
+          const invoices = await tx.voucher.findMany({
+            where: {
+              id: { in: invoiceIds },
+              deletedAt: null,
+              type: invoiceType
+            },
+            select: {
+              id: true,
+              partnerId: true,
+              totalNetAmount: true,
+              paidAmount: true
+            }
+          });
+
+          if (invoices.length !== invoiceIds.length) {
+            throw new AppError("Some invoices were not found", 404, "NOT_FOUND");
+          }
+
+          const invoiceMap = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+          for (const allocation of normalizedAllocations) {
+            const invoice = invoiceMap.get(allocation.invoiceId);
+            if (!invoice) {
+              throw new AppError("Invoice not found", 404, "NOT_FOUND");
+            }
+            if (payload.partnerId && invoice.partnerId !== payload.partnerId) {
+              throw new AppError("All allocations must belong to the selected partner", 400, "VALIDATION_ERROR");
+            }
+
+            const remaining = roundTo(this.toNumber(invoice.totalNetAmount) - this.toNumber(invoice.paidAmount), 4);
+            if (allocation.amountApplied > remaining) {
+              throw new AppError("Allocation amount exceeds remaining invoice balance", 400, "VALIDATION_ERROR");
+            }
+          }
+        }
+
+        const voucher = await tx.voucher.create({
+          data: {
+            type: payload.voucherType,
+            status: VoucherStatus.BOOKED,
+            paymentStatus: PaymentStatus.PAID,
+            paymentMethod: payload.paymentMethod,
+            paymentReason: payload.paymentReason,
+            partnerId: payload.partnerId ?? null,
+            voucherDate: this.parseDate(payload.voucherDate),
+            note: payload.note,
+            totalAmount: this.decimal(normalizedAmount, 4),
+            totalDiscount: this.decimal(0, 4),
+            totalTaxAmount: this.decimal(0, 4),
+            totalNetAmount: this.decimal(normalizedAmount, 4),
+            paidAmount: this.decimal(normalizedAmount, 4),
+            createdBy: context.user.id,
+            updatedBy: context.user.id,
+            metadata: {
+              ...((payload.metadata ?? {}) as Record<string, unknown>),
+              isInvoiceBased
+            }
+          }
+        });
+
+        if (normalizedAllocations.length > 0) {
+          for (const allocation of normalizedAllocations) {
+            await tx.voucherAllocation.create({
+              data: {
+                paymentVoucherId: voucher.id,
+                invoiceVoucherId: allocation.invoiceId,
+                amountApplied: this.decimal(allocation.amountApplied, 4)
+              }
+            });
+
+            const invoice = await tx.voucher.findUniqueOrThrow({
+              where: { id: allocation.invoiceId },
+              select: {
+                id: true,
+                totalNetAmount: true,
+                paidAmount: true
+              }
+            });
+            const nextPaidAmount = roundTo(this.toNumber(invoice.paidAmount) + allocation.amountApplied, 4);
+            const totalNetAmount = this.toNumber(invoice.totalNetAmount);
+
+            await tx.voucher.update({
+              where: { id: invoice.id },
+              data: {
+                paidAmount: this.decimal(nextPaidAmount, 4),
+                paymentStatus: this.derivePaymentStatus(nextPaidAmount, totalNetAmount)
+              }
+            });
+          }
+        }
+
+        if (payload.partnerId && isDebtSettlementReason) {
+          const reduced = await this.reducePartnerDebt(
+            tx,
+            payload.partnerId,
+            isInvoiceBased ? totalApplied || normalizedAmount : normalizedAmount,
+            voucher.id,
+            payload.note ?? `Cash voucher ${payload.paymentReason}`
+          );
+          if (!reduced) {
+            throw new AppError("Partner not found", 404, "NOT_FOUND");
+          }
+        }
+
+        return voucher;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+
+    return {
+      voucherId: created.id,
+      voucherNo: created.voucherNo,
+      status: created.status,
+      paymentStatus: created.paymentStatus,
+      paidAmount: this.toNumber(created.paidAmount),
+      pdfFilePath: created.pdfFilePath ?? undefined
+    };
+  }
+
   async updateVoucher(voucherId: string, payload: UpdateVoucherRequest, context: ServiceContext): Promise<VoucherTransactionResult> {
     this.logStep(context, "Input Validation", "Initiated", { voucherId });
     const existingVoucher = await this.db.voucher.findFirst({
@@ -253,17 +514,21 @@ export class VoucherService {
           await this.setTransactionContext(tx, context);
           this.logStep(context, "Pre-flight Snapshot", "Pre-flight Check", { voucherId });
 
-          const oldItems = await tx.voucherItem.findMany({ where: { voucherId } });
-          const oldMovements = await tx.inventoryMovement.findMany({ where: { voucherId } });
-          const oldLedger = await tx.arLedger.findMany({ where: { voucherId } });
+          const [oldItems, oldMovements, oldLedger] = await Promise.all([
+            tx.voucherItem.findMany({ where: { voucherId } }),
+            tx.inventoryMovement.findMany({ where: { voucherId } }),
+            tx.arLedger.findMany({ where: { voucherId } })
+          ]);
 
           if (existingVoucher.status === VoucherStatus.BOOKED) {
             await this.reverseVoucherEffects(tx, oldMovements, oldLedger);
           }
 
-          await tx.inventoryMovement.deleteMany({ where: { voucherId } });
-          await tx.arLedger.deleteMany({ where: { voucherId } });
-          await tx.voucherItem.deleteMany({ where: { voucherId } });
+          await Promise.all([
+            tx.inventoryMovement.deleteMany({ where: { voucherId } }),
+            tx.arLedger.deleteMany({ where: { voucherId } }),
+            tx.voucherItem.deleteMany({ where: { voucherId } })
+          ]);
 
           this.logStep(context, "Rebuild Voucher", "Transaction Started", { voucherId });
           const applied = await this.applyVoucherByType(tx, voucherId, existingVoucher.type, payload);
@@ -273,6 +538,10 @@ export class VoucherService {
               partnerId: applied.partnerId ?? payload.partnerId ?? existingVoucher.partnerId,
               voucherDate: payload.voucherDate ? this.parseDate(payload.voucherDate) : existingVoucher.voucherDate,
               note: payload.note ?? existingVoucher.note,
+              paymentMethod:
+                existingVoucher.type === VoucherType.SALES
+                  ? payload.paymentMethod ?? existingVoucher.paymentMethod
+                  : existingVoucher.paymentMethod,
               totalAmount: this.decimal(applied.totals.totalAmount, 4),
               totalDiscount: this.decimal(applied.totals.totalDiscount, 4),
               totalTaxAmount: this.decimal(applied.totals.totalTaxAmount, 4),
@@ -286,7 +555,9 @@ export class VoucherService {
                 existingVoucher.status === VoucherStatus.BOOKED
                   ? existingVoucher.editedFromVoucherId ?? existingVoucher.id
                   : existingVoucher.editedFromVoucherId,
-              updatedBy: context.user.id
+              updatedBy: context.user.id,
+              lastEditedBy: context.user.id,
+              lastEditedAt: new Date()
             }
           });
 
@@ -310,7 +581,7 @@ export class VoucherService {
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       );
 
-      const pdf = await this.generateVoucherPdfFile(updatedVoucher.id, context);
+      this.scheduleVoucherPdfGeneration(updatedVoucher.id, context);
       this.logStep(context, "Update Completed", "Completed", {
         voucherId: updatedVoucher.id,
         latencyMs: Date.now() - startedAt
@@ -322,7 +593,7 @@ export class VoucherService {
         status: updatedVoucher.status,
         paymentStatus: updatedVoucher.paymentStatus,
         paidAmount: this.toNumber(updatedVoucher.paidAmount),
-        pdfFilePath: pdf.pdfPath
+        pdfFilePath: updatedVoucher.pdfFilePath ?? undefined
       };
     } catch (error) {
       await this.handleFailure(error, context, "updateVoucher", voucherId);
@@ -556,6 +827,284 @@ export class VoucherService {
     }
   }
 
+  async unpostVoucher(voucherId: string, context: ServiceContext): Promise<VoucherTransactionResult> {
+    this.logStep(context, "Unpost Request", "Initiated", { voucherId });
+
+    const voucher = await this.db.voucher.findFirst({
+      where: { id: voucherId, deletedAt: null },
+      select: {
+        id: true,
+        voucherNo: true,
+        type: true,
+        status: true,
+        paymentStatus: true,
+        paidAmount: true,
+        partnerId: true,
+        metadata: true
+      }
+    });
+    if (!voucher) {
+      throw new AppError("Voucher not found", 404, "NOT_FOUND");
+    }
+    this.requireVoucherPermission(voucher.type, context.user);
+    this.logStep(context, "Unpost Permission", "Auth Check", { voucherId });
+
+    if (voucher.status !== VoucherStatus.BOOKED) {
+      throw new AppError("Only booked voucher can be unposted", 409, "VALIDATION_ERROR");
+    }
+
+    try {
+      const result = await this.db.$transaction(async (tx) => {
+        await this.setTransactionContext(tx, context);
+        this.logStep(context, "Unpost Transaction", "Transaction Started", { voucherId });
+
+        const [movements, ledgers] = await Promise.all([
+          tx.inventoryMovement.findMany({
+            where: { voucherId },
+            select: {
+              productId: true,
+              quantityChange: true
+            }
+          }),
+          tx.arLedger.findMany({
+            where: { voucherId },
+            select: {
+              partnerId: true,
+              debit: true,
+              credit: true
+            }
+          })
+        ]);
+
+        if (movements.length > 0 || ledgers.length > 0) {
+          await this.reverseVoucherEffects(tx, movements, ledgers);
+          await Promise.all([
+            tx.inventoryMovement.deleteMany({ where: { voucherId } }),
+            tx.arLedger.deleteMany({ where: { voucherId } })
+          ]);
+        }
+
+        const currentMetadata = (voucher.metadata as Record<string, unknown> | null) ?? {};
+        const updated = await tx.voucher.update({
+          where: { id: voucherId },
+          data: {
+            status: VoucherStatus.DRAFT,
+            paymentStatus: PaymentStatus.UNPAID,
+            paidAmount: this.decimal(0, 4),
+            updatedBy: context.user.id,
+            metadata: {
+              ...currentMetadata,
+              unpostedFromBooked: true,
+              unpostedBy: context.user.id,
+              unpostedAt: new Date().toISOString()
+            }
+          }
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId: context.user.id,
+            action: AuditAction.UPDATE,
+            entityName: "vouchers",
+            entityId: voucherId,
+            oldValue: { status: voucher.status, paymentStatus: voucher.paymentStatus },
+            newValue: { status: VoucherStatus.DRAFT, paymentStatus: PaymentStatus.UNPAID },
+            correlationId: context.traceId,
+            ipAddress: context.ipAddress,
+            message: "Voucher unposted and stock/debt reversed"
+          }
+        });
+
+        this.logStep(context, "Unpost Post-processing", "Post-processing", { voucherId });
+        return updated;
+      });
+
+      this.logStep(context, "Unpost Completed", "Completed", { voucherId });
+      return {
+        voucherId: result.id,
+        voucherNo: result.voucherNo,
+        status: result.status,
+        paymentStatus: result.paymentStatus,
+        paidAmount: this.toNumber(result.paidAmount),
+        pdfFilePath: result.pdfFilePath ?? undefined
+      };
+    } catch (error) {
+      await this.handleFailure(error, context, "unpostVoucher", voucherId);
+      throw this.toAppError(error);
+    }
+  }
+
+  async duplicateVoucher(voucherId: string, context: ServiceContext): Promise<VoucherTransactionResult> {
+    this.logStep(context, "Duplicate Request", "Initiated", { voucherId });
+
+    const source = await this.db.voucher.findFirst({
+      where: { id: voucherId, deletedAt: null },
+      include: {
+        items: {
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+    if (!source) {
+      throw new AppError("Voucher not found", 404, "NOT_FOUND");
+    }
+    this.requireVoucherPermission(source.type, context.user);
+    this.logStep(context, "Duplicate Permission", "Auth Check", { voucherId });
+
+    try {
+      const result = await this.db.$transaction(async (tx) => {
+        await this.setTransactionContext(tx, context);
+        this.logStep(context, "Duplicate Transaction", "Transaction Started", { voucherId });
+
+        const duplicated = await tx.voucher.create({
+          data: {
+            type: source.type,
+            status: VoucherStatus.DRAFT,
+            paymentStatus: PaymentStatus.UNPAID,
+            paidAmount: this.decimal(0, 4),
+            partnerId: source.partnerId,
+            voucherDate: source.voucherDate,
+            note: source.note,
+            totalAmount: source.totalAmount,
+            totalDiscount: source.totalDiscount,
+            totalTaxAmount: source.totalTaxAmount,
+            totalNetAmount: source.totalNetAmount,
+            paymentMethod: source.paymentMethod,
+            createdBy: context.user.id,
+            updatedBy: context.user.id,
+            metadata: {
+              duplicatedFromVoucherId: source.id
+            }
+          }
+        });
+
+        if (source.items.length > 0) {
+          await tx.voucherItem.createMany({
+            data: source.items.map((item) => ({
+              voucherId: duplicated.id,
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discountRate: item.discountRate,
+              discountAmount: item.discountAmount,
+              taxRate: item.taxRate,
+              taxAmount: item.taxAmount,
+              netPrice: item.netPrice,
+              cogs: item.cogs,
+              metadata: item.metadata as Prisma.InputJsonValue
+            }))
+          });
+        }
+
+        await tx.auditLog.create({
+          data: {
+            userId: context.user.id,
+            action: AuditAction.INSERT,
+            entityName: "vouchers",
+            entityId: duplicated.id,
+            oldValue: { sourceVoucherId: source.id },
+            newValue: { duplicatedVoucherId: duplicated.id },
+            correlationId: context.traceId,
+            ipAddress: context.ipAddress,
+            message: "Voucher duplicated"
+          }
+        });
+
+        this.logStep(context, "Duplicate Post-processing", "Post-processing", { voucherId: duplicated.id });
+        return duplicated;
+      });
+
+      this.logStep(context, "Duplicate Completed", "Completed", { voucherId: result.id });
+      return {
+        voucherId: result.id,
+        voucherNo: result.voucherNo,
+        status: result.status,
+        paymentStatus: result.paymentStatus,
+        paidAmount: this.toNumber(result.paidAmount),
+        pdfFilePath: result.pdfFilePath ?? undefined
+      };
+    } catch (error) {
+      await this.handleFailure(error, context, "duplicateVoucher", voucherId);
+      throw this.toAppError(error);
+    }
+  }
+
+  async deleteVoucher(voucherId: string, context: ServiceContext): Promise<{ id: string }> {
+    this.logStep(context, "Delete Request", "Initiated", { voucherId });
+    const voucher = await this.db.voucher.findFirst({
+      where: { id: voucherId, deletedAt: null },
+      select: {
+        id: true,
+        type: true,
+        status: true
+      }
+    });
+    if (!voucher) {
+      throw new AppError("Voucher not found", 404, "NOT_FOUND");
+    }
+    this.requireVoucherPermission(voucher.type, context.user);
+    this.logStep(context, "Delete Permission", "Auth Check", { voucherId });
+
+    if (voucher.status !== VoucherStatus.DRAFT) {
+      throw new AppError("Only draft voucher can be deleted", 409, "VALIDATION_ERROR");
+    }
+
+    try {
+      await this.db.$transaction(async (tx) => {
+        await this.setTransactionContext(tx, context);
+        this.logStep(context, "Delete Transaction", "Transaction Started", { voucherId });
+
+        const [movements, ledgers] = await Promise.all([
+          tx.inventoryMovement.findMany({
+            where: { voucherId },
+            select: { productId: true, quantityChange: true }
+          }),
+          tx.arLedger.findMany({
+            where: { voucherId },
+            select: { partnerId: true, debit: true, credit: true }
+          })
+        ]);
+
+        if (movements.length > 0 || ledgers.length > 0) {
+          await this.reverseVoucherEffects(tx, movements, ledgers);
+        }
+
+        await Promise.all([
+          tx.inventoryMovement.deleteMany({ where: { voucherId } }),
+          tx.arLedger.deleteMany({ where: { voucherId } })
+        ]);
+
+        await tx.voucher.update({
+          where: { id: voucherId },
+          data: {
+            deletedAt: new Date(),
+            updatedBy: context.user.id
+          }
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId: context.user.id,
+            action: AuditAction.DELETE,
+            entityName: "vouchers",
+            entityId: voucherId,
+            correlationId: context.traceId,
+            ipAddress: context.ipAddress,
+            message: "Deleted draft voucher"
+          }
+        });
+      });
+
+      this.logStep(context, "Delete Completed", "Completed", { voucherId });
+      return { id: voucherId };
+    } catch (error) {
+      await this.handleFailure(error, context, "deleteVoucher", voucherId);
+      throw this.toAppError(error);
+    }
+  }
+
   async generateVoucherPdfFile(voucherId: string, context: ServiceContext): Promise<{ pdfPath: string }> {
     const data = await this.buildPdfData(voucherId);
     const output = await renderVoucherPdf(data);
@@ -576,7 +1125,7 @@ export class VoucherService {
     const where: Prisma.VoucherWhereInput = {
       deletedAt: null,
       type: input.type,
-      voucherDate:
+      createdAt:
         input.startDate || input.endDate
           ? {
               gte: input.startDate,
@@ -612,6 +1161,8 @@ export class VoucherService {
           type: true,
           status: true,
           paymentStatus: true,
+          paymentMethod: true,
+          paymentReason: true,
           partnerId: true,
           voucherDate: true,
           createdAt: true,
@@ -620,6 +1171,8 @@ export class VoucherService {
           totalNetAmount: true,
           paidAmount: true,
           note: true,
+          lastEditedBy: true,
+          lastEditedAt: true,
           partner: {
             select: {
               name: true
@@ -635,25 +1188,111 @@ export class VoucherService {
       this.db.voucher.count({ where })
     ]);
 
+    const lastEditedUserIds = [...new Set(items.map((item) => item.lastEditedBy).filter((value): value is string => Boolean(value)))];
+    const editedByUsers = lastEditedUserIds.length
+      ? await this.db.user.findMany({
+          where: {
+            id: { in: lastEditedUserIds }
+          },
+          select: {
+            id: true,
+            fullName: true,
+            username: true
+          }
+        })
+      : [];
+    const editedByMap = new Map(editedByUsers.map((item) => [item.id, item.fullName ?? item.username]));
+    const mappedItems = items.map((item) => ({
+      id: item.id,
+      voucherNo: item.voucherNo,
+      type: item.type,
+      status: item.status,
+      paymentStatus: item.paymentStatus,
+      paymentMethod: item.paymentMethod,
+      paymentReason: item.paymentReason,
+      partnerId: item.partnerId,
+      partnerName: item.partner?.name ?? null,
+      voucherDate: item.voucherDate,
+      createdAt: item.createdAt,
+      totalAmount: this.toNumber(item.totalAmount),
+      totalTaxAmount: this.toNumber(item.totalTaxAmount),
+      totalNetAmount: this.toNumber(item.totalNetAmount),
+      paidAmount: this.toNumber(item.paidAmount),
+      note: item.note,
+      lastEditedBy: item.lastEditedBy,
+      lastEditedByName: item.lastEditedBy ? editedByMap.get(item.lastEditedBy) ?? null : null,
+      lastEditedAt: item.lastEditedAt
+    }));
+
+    const summary = mappedItems.reduce(
+      (acc, item) => {
+        acc.totalAmount = roundTo(acc.totalAmount + item.totalAmount, 4);
+        acc.totalTaxAmount = roundTo(acc.totalTaxAmount + item.totalTaxAmount, 4);
+        acc.totalNetAmount = roundTo(acc.totalNetAmount + item.totalNetAmount, 4);
+        return acc;
+      },
+      {
+        totalAmount: 0,
+        totalTaxAmount: 0,
+        totalNetAmount: 0
+      }
+    );
+
     return {
-      items: items.map((item) => ({
-        id: item.id,
-        voucherNo: item.voucherNo,
-        type: item.type,
-        status: item.status,
-        paymentStatus: item.paymentStatus,
-        partnerId: item.partnerId,
-        partnerName: item.partner?.name ?? null,
-        voucherDate: item.voucherDate,
-        createdAt: item.createdAt,
-        totalAmount: this.toNumber(item.totalAmount),
-        totalTaxAmount: this.toNumber(item.totalTaxAmount),
-        totalNetAmount: this.toNumber(item.totalNetAmount),
-        paidAmount: this.toNumber(item.paidAmount),
-        note: item.note
-      })),
-      total
+      items: mappedItems,
+      total,
+      summary
     };
+  }
+
+  async listUnpaidInvoices(input: ListUnpaidInvoicesInput): Promise<UnpaidInvoiceItem[]> {
+    const invoices = await this.db.voucher.findMany({
+      where: {
+        deletedAt: null,
+        partnerId: input.partnerId,
+        type: input.type,
+        paymentStatus: {
+          in: [PaymentStatus.UNPAID, PaymentStatus.PARTIAL]
+        }
+      },
+      select: {
+        id: true,
+        voucherNo: true,
+        type: true,
+        partnerId: true,
+        voucherDate: true,
+        note: true,
+        totalNetAmount: true,
+        paidAmount: true,
+        paymentStatus: true,
+        partner: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        voucherDate: "asc"
+      }
+    });
+
+    return invoices.map((invoice) => {
+      const totalNetAmount = this.toNumber(invoice.totalNetAmount);
+      const paidAmount = this.toNumber(invoice.paidAmount);
+      return {
+        id: invoice.id,
+        voucherNo: invoice.voucherNo,
+        type: invoice.type as "SALES" | "PURCHASE",
+        partnerId: invoice.partnerId,
+        partnerName: invoice.partner?.name ?? null,
+        voucherDate: invoice.voucherDate,
+        note: invoice.note,
+        totalNetAmount,
+        paidAmount,
+        remainingAmount: roundTo(totalNetAmount - paidAmount, 4),
+        paymentStatus: invoice.paymentStatus
+      };
+    });
   }
 
   async streamVoucherPdf(voucherId: string, res: Response): Promise<void> {
@@ -719,24 +1358,132 @@ export class VoucherService {
     );
   }
 
-  async getVoucherById(voucherId: string) {
-    return this.db.voucher.findFirst({
+  async getVoucherDetail(voucherId: string) {
+    const voucher = await this.db.voucher.findFirst({
       where: { id: voucherId, deletedAt: null },
       include: {
-        partner: true,
+        partner: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            phone: true,
+            address: true,
+            taxCode: true
+          }
+        },
         items: {
           include: {
-            product: true
+            product: {
+              select: {
+                id: true,
+                skuCode: true,
+                name: true,
+                unitName: true,
+                stockQuantity: true,
+                costPrice: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        allocationsAsPayment: {
+          include: {
+            invoiceVoucher: {
+              select: {
+                id: true,
+                voucherNo: true,
+                type: true,
+                voucherDate: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
           }
         }
       }
     });
+
+    if (!voucher) {
+      throw new AppError("Voucher not found", 404, "NOT_FOUND");
+    }
+
+    const lastEditor = voucher.lastEditedBy
+      ? await this.db.user.findUnique({
+          where: { id: voucher.lastEditedBy },
+          select: {
+            fullName: true,
+            username: true
+          }
+        })
+      : null;
+
+    return {
+      id: voucher.id,
+      voucherNo: voucher.voucherNo,
+      type: voucher.type,
+      status: voucher.status,
+      paymentStatus: voucher.paymentStatus,
+      paymentMethod: voucher.paymentMethod,
+      paymentReason: voucher.paymentReason,
+      partnerId: voucher.partnerId,
+      partnerCode: voucher.partner?.code ?? null,
+      partnerName: voucher.partner?.name ?? null,
+      partnerAddress: voucher.partner?.address ?? null,
+      partnerPhone: voucher.partner?.phone ?? null,
+      partnerTaxCode: voucher.partner?.taxCode ?? null,
+      voucherDate: voucher.voucherDate,
+      note: voucher.note,
+      totalAmount: this.toNumber(voucher.totalAmount),
+      totalDiscount: this.toNumber(voucher.totalDiscount),
+      totalTaxAmount: this.toNumber(voucher.totalTaxAmount),
+      totalNetAmount: this.toNumber(voucher.totalNetAmount),
+      paidAmount: this.toNumber(voucher.paidAmount),
+      metadata: (voucher.metadata as Record<string, unknown> | null) ?? null,
+      lastEditedBy: voucher.lastEditedBy,
+      lastEditedByName: lastEditor ? lastEditor.fullName ?? lastEditor.username : null,
+      lastEditedAt: voucher.lastEditedAt,
+      items: voucher.items.map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        skuCode: item.product.skuCode,
+        productName: item.product.name,
+        unitName: item.product.unitName,
+        stockQuantity: this.toNumber(item.product.stockQuantity),
+        quantity: this.toNumber(item.quantity),
+        unitPrice: this.toNumber(item.unitPrice),
+        discountRate: this.toNumber(item.discountRate),
+        discountAmount: this.toNumber(item.discountAmount),
+        taxRate: this.toNumber(item.taxRate),
+        taxAmount: this.toNumber(item.taxAmount),
+        netPrice: this.toNumber(item.netPrice),
+        lineNetAmount: roundTo(this.toNumber(item.quantity) * this.toNumber(item.netPrice), 4),
+        cogs: this.toNumber(item.cogs)
+      })),
+      allocations: voucher.allocationsAsPayment.map((allocation) => ({
+        id: allocation.id,
+        paymentVoucherId: allocation.paymentVoucherId,
+        invoiceVoucherId: allocation.invoiceVoucherId,
+        invoiceVoucherNo: allocation.invoiceVoucher.voucherNo,
+        invoiceVoucherType: allocation.invoiceVoucher.type as "SALES" | "PURCHASE",
+        invoiceVoucherDate: allocation.invoiceVoucher.voucherDate,
+        amountApplied: this.toNumber(allocation.amountApplied)
+      }))
+    };
   }
 
   private async createVoucherWithPayload(input: {
     voucherType: VoucherType;
-    payload: CreatePurchaseVoucherRequest | CreateSalesVoucherRequest | CreateConversionVoucherRequest;
+    payload:
+      | CreatePurchaseVoucherRequest
+      | CreateSalesVoucherRequest
+      | CreateSalesReturnVoucherRequest
+      | CreateConversionVoucherRequest;
     context: ServiceContext;
+    options?: CreateVoucherOptions;
   }): Promise<VoucherTransactionResult> {
     this.logStep(input.context, "Input Validation", "Initiated");
     this.logStep(input.context, "Permission", "Auth Check");
@@ -752,11 +1499,16 @@ export class VoucherService {
             data: {
               type: input.voucherType,
               status: VoucherStatus.DRAFT,
-              paymentStatus: input.voucherType === VoucherType.CONVERSION ? PaymentStatus.PAID : PaymentStatus.UNPAID,
+              paymentStatus:
+                input.voucherType === VoucherType.CONVERSION ? PaymentStatus.PAID : PaymentStatus.UNPAID,
+              paymentMethod: this.resolvePaymentMethod(input.voucherType, input.payload, input.options),
               paidAmount: this.decimal(0, 4),
               partnerId: "partnerId" in input.payload ? (input.payload.partnerId ?? null) : null,
+              originalVoucherId: "originalVoucherId" in input.payload ? (input.payload.originalVoucherId ?? null) : null,
               voucherDate: this.parseDate(input.payload.voucherDate),
               note: input.payload.note,
+              isInventoryInput: "isInventoryInput" in input.payload ? input.payload.isInventoryInput !== false : true,
+              quotationId: input.options?.quotationId,
               createdBy: input.context.user.id,
               updatedBy: input.context.user.id
             }
@@ -774,8 +1526,18 @@ export class VoucherService {
               paymentStatus:
                 input.voucherType === VoucherType.CONVERSION
                   ? PaymentStatus.PAID
+                  : input.voucherType === VoucherType.SALES_RETURN
+                    ? PaymentStatus.PAID
                   : this.derivePaymentStatus(0, applied.totals.totalNetAmount),
+              paymentMethod: this.resolvePaymentMethod(input.voucherType, input.payload, input.options),
               partnerId: applied.partnerId ?? ("partnerId" in input.payload ? (input.payload.partnerId ?? null) : null),
+              originalVoucherId: "originalVoucherId" in input.payload ? (input.payload.originalVoucherId ?? null) : null,
+              isInventoryInput: "isInventoryInput" in input.payload ? input.payload.isInventoryInput !== false : true,
+              quotationId: input.options?.quotationId,
+              paidAmount:
+                input.voucherType === VoucherType.SALES_RETURN
+                  ? this.decimal(applied.totals.totalNetAmount, 4)
+                  : undefined,
               updatedBy: input.context.user.id
             }
           });
@@ -783,6 +1545,7 @@ export class VoucherService {
           let currentPaidAmount = this.toNumber(patchedVoucher.paidAmount);
 
           let linkedReceiptVoucherId: string | undefined;
+          let linkedCounterVoucherId: string | undefined;
           if (
             input.voucherType === VoucherType.SALES &&
             (input.payload as CreateSalesVoucherRequest).isPaidImmediately === true
@@ -828,6 +1591,42 @@ export class VoucherService {
             currentPaymentStatus = this.derivePaymentStatus(applied.totals.totalNetAmount, applied.totals.totalNetAmount);
           }
 
+          if (
+            input.voucherType === VoucherType.SALES_RETURN &&
+            (input.payload as CreateSalesReturnVoucherRequest).settlementMode === "CASH_REFUND"
+          ) {
+            const paymentVoucher = await tx.voucher.create({
+              data: {
+                type: VoucherType.PAYMENT,
+                status: VoucherStatus.BOOKED,
+                paymentStatus: PaymentStatus.PAID,
+                partnerId: patchedVoucher.partnerId,
+                voucherDate: this.parseDate(input.payload.voucherDate),
+                note: `Phiếu chi hoàn tiền cho chứng từ trả lại ${patchedVoucher.voucherNo ?? patchedVoucher.id}`,
+                totalAmount: this.decimal(applied.totals.totalNetAmount, 4),
+                totalDiscount: this.decimal(0, 4),
+                totalTaxAmount: this.decimal(0, 4),
+                totalNetAmount: this.decimal(applied.totals.totalNetAmount, 4),
+                paidAmount: this.decimal(applied.totals.totalNetAmount, 4),
+                createdBy: input.context.user.id,
+                updatedBy: input.context.user.id,
+                metadata: {
+                  referenceVoucherId: voucher.id,
+                  autoGenerated: true,
+                  counterVoucherType: VoucherType.PAYMENT
+                }
+              }
+            });
+
+            linkedCounterVoucherId = paymentVoucher.id;
+            currentPaidAmount = applied.totals.totalNetAmount;
+            currentPaymentStatus = PaymentStatus.PAID;
+          }
+
+          if (input.options?.afterPersist) {
+            await input.options.afterPersist(tx, voucher.id);
+          }
+
           this.logStep(input.context, "Post-processing", "Post-processing", { voucherId: voucher.id });
           return {
             voucherId: voucher.id,
@@ -836,13 +1635,14 @@ export class VoucherService {
             paymentStatus: currentPaymentStatus,
             paidAmount: currentPaidAmount,
             linkedReceiptVoucherId,
+            linkedCounterVoucherId,
             pdfFilePath: voucher.pdfFilePath ?? undefined
           };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       );
 
-      const pdf = await this.generateVoucherPdfFile(created.voucherId, input.context);
+      this.scheduleVoucherPdfGeneration(created.voucherId, input.context);
       this.logStep(input.context, "Create Completed", "Completed", {
         voucherId: created.voucherId,
         latencyMs: Date.now() - startedAt
@@ -855,7 +1655,8 @@ export class VoucherService {
         paymentStatus: created.paymentStatus,
         paidAmount: created.paidAmount,
         linkedReceiptVoucherId: created.linkedReceiptVoucherId,
-        pdfFilePath: pdf.pdfPath
+        linkedCounterVoucherId: created.linkedCounterVoucherId,
+        pdfFilePath: created.pdfFilePath
       };
     } catch (error) {
       await this.handleFailure(error, input.context, "createVoucher");
@@ -867,7 +1668,11 @@ export class VoucherService {
     tx: Tx,
     voucherId: string,
     voucherType: VoucherType,
-    payload: CreatePurchaseVoucherRequest | CreateSalesVoucherRequest | CreateConversionVoucherRequest
+    payload:
+      | CreatePurchaseVoucherRequest
+      | CreateSalesVoucherRequest
+      | CreateSalesReturnVoucherRequest
+      | CreateConversionVoucherRequest
   ): Promise<VoucherPayloadResult> {
     if (voucherType === VoucherType.PURCHASE) {
       const data = payload as CreatePurchaseVoucherRequest;
@@ -880,6 +1685,14 @@ export class VoucherService {
         throw new AppError("partnerId is required for sales voucher", 400, "VALIDATION_ERROR");
       }
       return this.applySalesPayload(tx, voucherId, data.items, data.partnerId);
+    }
+
+    if (voucherType === VoucherType.SALES_RETURN) {
+      const data = payload as CreateSalesReturnVoucherRequest;
+      if (!data.partnerId) {
+        throw new AppError("partnerId is required for sales return voucher", 400, "VALIDATION_ERROR");
+      }
+      return this.applySalesReturnPayload(tx, voucherId, data);
     }
 
     if (voucherType === VoucherType.CONVERSION) {
@@ -910,6 +1723,10 @@ export class VoucherService {
         throw new AppError("partnerId is required for sales update", 400, "VALIDATION_ERROR");
       }
       return this.applySalesPayload(tx, voucherId, payload.items, payload.partnerId);
+    }
+
+    if (type === VoucherType.SALES_RETURN) {
+      throw new AppError("Update is not supported for sales return vouchers yet", 400, "VALIDATION_ERROR");
     }
 
     if (type === VoucherType.CONVERSION) {
@@ -1089,6 +1906,96 @@ export class VoucherService {
     return {
       totals: this.roundTotals(totals),
       partnerId
+    };
+  }
+
+  private async applySalesReturnPayload(
+    tx: Tx,
+    voucherId: string,
+    payload: CreateSalesReturnVoucherRequest
+  ): Promise<VoucherPayloadResult> {
+    this.validateItems(payload.items);
+    const isInventoryInput = payload.isInventoryInput !== false;
+    const products = await this.lockProducts(tx, [...new Set(payload.items.map((item) => item.productId))]);
+    const productMap = new Map(products.map((item) => [item.id, item]));
+    const originalCostMap = await this.getOriginalSalesItemCosts(tx, payload.originalVoucherId, payload.partnerId);
+    const totals = this.initTotals();
+
+    for (const item of payload.items) {
+      const product = productMap.get(item.productId);
+      if (!product) {
+        throw new AppError(`Product not found: ${item.productId}`, 404, "NOT_FOUND");
+      }
+
+      const line = this.calculateLineValues(item);
+      const stockBefore = this.toNumber(product.stock_quantity);
+      const stockAfter = isInventoryInput ? roundTo(stockBefore + line.quantity, 3) : stockBefore;
+      const unitCost = originalCostMap.get(item.productId) ?? this.toNumber(product.cost_price);
+      const cogs = roundTo(line.quantity * unitCost, 4);
+
+      const createdItem = await tx.voucherItem.create({
+        data: {
+          voucherId,
+          productId: item.productId,
+          quantity: this.decimal(line.quantity, 3),
+          unitPrice: this.decimal(line.unitPrice, 4),
+          discountRate: this.decimal(line.discountRate, 4),
+          discountAmount: this.decimal(line.discountAmount, 4),
+          taxRate: this.decimal(line.taxRate, 4),
+          taxAmount: this.decimal(line.taxAmount, 4),
+          netPrice: this.decimal(line.netUnitPrice, 4),
+          cogs: this.decimal(cogs, 4)
+        }
+      });
+
+      if (isInventoryInput) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            stockQuantity: this.decimal(stockAfter, 3)
+          }
+        });
+
+        await tx.inventoryMovement.create({
+          data: {
+            voucherId,
+            voucherItemId: createdItem.id,
+            productId: item.productId,
+            movementType: InventoryMovementType.SALES_RETURN_IN,
+            quantityBefore: this.decimal(stockBefore, 3),
+            quantityChange: this.decimal(line.quantity, 3),
+            quantityAfter: this.decimal(stockAfter, 3),
+            unitCost: this.decimal(unitCost, 4),
+            totalCost: this.decimal(cogs, 4)
+          }
+        });
+
+        product.stock_quantity = this.decimal(stockAfter, 3);
+      }
+
+      totals.totalAmount += line.grossAmount;
+      totals.totalDiscount += line.discountAmount;
+      totals.totalTaxAmount += line.taxAmount;
+      totals.totalNetAmount += line.lineNetAmount;
+    }
+
+    const roundedTotals = this.roundTotals(totals);
+    if (payload.settlementMode === "DEBT_REDUCTION") {
+      const reduced = await this.reducePartnerDebt(
+        tx,
+        payload.partnerId,
+        roundedTotals.totalNetAmount,
+        voucherId,
+        "Sales return voucher"
+      );
+      if (!reduced) {
+        throw new AppError("Partner not found", 404, "NOT_FOUND");
+      }
+    }
+
+    return {
+      totals: roundedTotals,
+      partnerId: payload.partnerId
     };
   }
 
@@ -1296,6 +2203,98 @@ export class VoucherService {
     return true;
   }
 
+  private async reducePartnerDebt(
+    tx: Tx,
+    partnerId: string,
+    amount: number,
+    voucherId: string,
+    description: string
+  ): Promise<boolean> {
+    const normalizedAmount = roundTo(amount, 4);
+    if (normalizedAmount <= 0) {
+      return true;
+    }
+
+    const partner = await tx.partner.findUnique({
+      where: { id: partnerId },
+      select: { id: true, currentDebt: true }
+    });
+    if (!partner) {
+      return false;
+    }
+
+    const newDebt = roundTo(this.toNumber(partner.currentDebt) - normalizedAmount, 4);
+    await tx.partner.update({
+      where: { id: partner.id },
+      data: { currentDebt: this.decimal(newDebt, 4) }
+    });
+    await tx.arLedger.create({
+      data: {
+        voucherId,
+        partnerId,
+        debit: this.decimal(0, 4),
+        credit: this.decimal(normalizedAmount, 4),
+        balanceAfter: this.decimal(newDebt, 4),
+        description
+      }
+    });
+    return true;
+  }
+
+  private async getOriginalSalesItemCosts(
+    tx: Tx,
+    originalVoucherId: string | undefined,
+    partnerId: string
+  ): Promise<Map<string, number>> {
+    if (!originalVoucherId) {
+      return new Map<string, number>();
+    }
+
+    const originalVoucher = await tx.voucher.findFirst({
+      where: {
+        id: originalVoucherId,
+        deletedAt: null
+      },
+      include: {
+        items: {
+          select: {
+            productId: true,
+            quantity: true,
+            cogs: true
+          }
+        }
+      }
+    });
+
+    if (!originalVoucher) {
+      throw new AppError("Original sales voucher not found", 404, "NOT_FOUND");
+    }
+    if (originalVoucher.type !== VoucherType.SALES) {
+      throw new AppError("originalVoucherId must point to a sales voucher", 400, "VALIDATION_ERROR");
+    }
+    if (originalVoucher.partnerId && originalVoucher.partnerId !== partnerId) {
+      throw new AppError("Original sales voucher partner mismatch", 400, "VALIDATION_ERROR");
+    }
+
+    const map = new Map<string, number>();
+    const grouped = new Map<string, OriginalSalesItemCost>();
+
+    for (const item of originalVoucher.items) {
+      const existing = grouped.get(item.productId) ?? { productId: item.productId, unitCost: 0 };
+      const quantity = this.toNumber(item.quantity);
+      if (quantity <= 0) {
+        continue;
+      }
+      const unitCost = roundTo(this.toNumber(item.cogs) / quantity, 4);
+      grouped.set(item.productId, { productId: item.productId, unitCost });
+    }
+
+    grouped.forEach((value) => {
+      map.set(value.productId, value.unitCost);
+    });
+    return map;
+  }
+
   private async applyReceiptDebt(
     tx: Tx,
     voucherId: string,
@@ -1477,9 +2476,12 @@ export class VoucherService {
   }
 
   private async setTransactionContext(tx: Tx, context: ServiceContext): Promise<void> {
-    await tx.$executeRaw`SELECT set_config('app.user_id', ${context.user.id}, true)`;
-    await tx.$executeRaw`SELECT set_config('app.correlation_id', ${context.traceId}, true)`;
-    await tx.$executeRaw`SELECT set_config('app.ip_address', ${context.ipAddress}, true)`;
+    await tx.$executeRaw`
+      SELECT
+        set_config('app.user_id', ${context.user.id}, true),
+        set_config('app.correlation_id', ${context.traceId}, true),
+        set_config('app.ip_address', ${context.ipAddress}, true)
+    `;
   }
 
   private requireVoucherPermission(type: VoucherType, user: AuthenticatedUser): void {
@@ -1488,6 +2490,10 @@ export class VoucherService {
       return;
     }
     if (type === VoucherType.SALES) {
+      requirePermission(user.permissions.create_sales_voucher, SALES_PERMISSION);
+      return;
+    }
+    if (type === VoucherType.SALES_RETURN) {
       requirePermission(user.permissions.create_sales_voucher, SALES_PERMISSION);
       return;
     }
@@ -1605,6 +2611,30 @@ export class VoucherService {
     return PaymentStatus.PARTIAL;
   }
 
+  private resolvePaymentMethod(
+    voucherType: VoucherType,
+    payload:
+      | CreatePurchaseVoucherRequest
+      | CreateSalesVoucherRequest
+      | CreateSalesReturnVoucherRequest
+      | CreateConversionVoucherRequest,
+    options?: CreateVoucherOptions
+  ): PaymentMethod | null {
+    if (voucherType !== VoucherType.SALES && voucherType !== VoucherType.PURCHASE) {
+      return null;
+    }
+
+    if (options?.paymentMethod) {
+      return options.paymentMethod;
+    }
+
+    if ("paymentMethod" in payload && payload.paymentMethod) {
+      return payload.paymentMethod;
+    }
+
+    return null;
+  }
+
   private decimal(value: number, scale: number): Prisma.Decimal {
     return new Prisma.Decimal(value.toFixed(scale));
   }
@@ -1675,6 +2705,23 @@ export class VoucherService {
       status,
       latencyMs: extra?.latencyMs,
       errorStack: extra?.errorStack
+    });
+  }
+
+  private scheduleVoucherPdfGeneration(voucherId: string, context: ServiceContext): void {
+    setImmediate(() => {
+      void this.generateVoucherPdfFile(voucherId, context).catch((error: unknown) => {
+        const stack = error instanceof Error ? error.stack : JSON.stringify(error);
+        logger.error(
+          {
+            traceId: context.traceId,
+            voucherId,
+            userId: context.user.id,
+            stack
+          },
+          "Background PDF generation failed"
+        );
+      });
     });
   }
 }

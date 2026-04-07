@@ -17,15 +17,18 @@ import { useAuthStore } from "../store/useAuthStore";
 
 const { Sider, Header, Content } = Layout;
 const CATALOG_MENU_KEY = "catalog";
-const REPORT_MENU_KEY = "bao-cao";
+const REPORT_MENU_KEY = "reports";
 
 const breadcrumbMap: Record<string, string[]> = {
   [ROUTES.DASHBOARD]: ["Tổng quan"],
   [ROUTES.MASTER_DATA]: ["Danh mục", "Hàng hóa"],
   [ROUTES.PRODUCTS]: ["Danh mục", "Hàng hóa"],
+  [ROUTES.CUSTOMERS]: ["Danh mục", "Khách hàng"],
+  [ROUTES.SUPPLIERS]: ["Danh mục", "Nhà cung cấp"],
   [ROUTES.PARTNERS]: ["Danh mục", "Đối tác"],
-  [ROUTES.PURCHASE_VOUCHER]: ["Mua hàng", "Thêm mới phiếu nhập"],
-  [ROUTES.SALES_VOUCHER]: ["Bán hàng", "Thêm mới phiếu xuất"],
+  [ROUTES.PURCHASE_VOUCHER]: ["Mua hàng", "Phiếu nhập kho"],
+  [ROUTES.SALES_VOUCHER]: ["Bán hàng"],
+  [ROUTES.CASH_VOUCHERS]: ["Quỹ", "Thu, chi tiền"],
   [ROUTES.REPORTS]: ["Báo cáo"],
   [ROUTES.VOUCHER_HISTORY]: ["Báo cáo", "Lịch sử chứng từ"],
   [ROUTES.AR_LEDGER_REPORT]: ["Báo cáo", "Sổ chi tiết công nợ"],
@@ -49,17 +52,18 @@ export function MainLayout() {
         label: "Danh mục",
         children: [
           { key: ROUTES.PRODUCTS, label: "Hàng hóa" },
-          { key: ROUTES.PARTNERS, label: "Đối tác" }
+          { key: ROUTES.CUSTOMERS, label: "Khách hàng" },
+          { key: ROUTES.SUPPLIERS, label: "Nhà cung cấp" }
         ]
       },
       { key: ROUTES.PURCHASE_VOUCHER, icon: <ShoppingCartOutlined />, label: "Mua hàng" },
       { key: ROUTES.SALES_VOUCHER, icon: <ShopOutlined />, label: "Bán hàng" },
+      { key: ROUTES.CASH_VOUCHERS, icon: <DatabaseOutlined />, label: "Thu, chi tiền" },
       {
         key: REPORT_MENU_KEY,
         icon: <BarChartOutlined />,
         label: "Báo cáo",
         children: [
-          { key: ROUTES.VOUCHER_HISTORY, label: "Lịch sử chứng từ" },
           { key: ROUTES.STOCK_CARD_REPORT, label: "Thẻ kho / Sổ chi tiết vật tư" },
           { key: ROUTES.AR_LEDGER_REPORT, label: "Sổ chi tiết công nợ" }
         ]
@@ -69,17 +73,23 @@ export function MainLayout() {
     []
   );
 
-  const currentBread = breadcrumbMap[location.pathname] ?? ["Bán hàng", "Thêm mới phiếu xuất"];
+  const partnerGroup = useMemo(() => new URLSearchParams(location.search).get("group"), [location.search]);
+  const currentRouteKey =
+    location.pathname === ROUTES.PARTNERS && partnerGroup ? `${ROUTES.PARTNERS}?group=${partnerGroup}` : location.pathname;
+  const currentBread = breadcrumbMap[currentRouteKey] ?? ["Bán hàng"];
 
   const selectedMenuKey = useMemo(() => {
     if (location.pathname.startsWith(ROUTES.PRODUCTS)) {
       return ROUTES.PRODUCTS;
     }
     if (location.pathname.startsWith(ROUTES.PARTNERS)) {
-      return ROUTES.PARTNERS;
-    }
-    if (location.pathname.startsWith(ROUTES.VOUCHER_HISTORY)) {
-      return ROUTES.VOUCHER_HISTORY;
+      if (partnerGroup === "SUPPLIER") {
+        return ROUTES.SUPPLIERS;
+      }
+      if (partnerGroup === "CUSTOMER") {
+        return ROUTES.CUSTOMERS;
+      }
+      return ROUTES.CUSTOMERS;
     }
     if (location.pathname.startsWith(ROUTES.STOCK_CARD_REPORT)) {
       return ROUTES.STOCK_CARD_REPORT;
@@ -91,7 +101,7 @@ export function MainLayout() {
       return REPORT_MENU_KEY;
     }
     return location.pathname;
-  }, [location.pathname]);
+  }, [location.pathname, partnerGroup]);
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -149,13 +159,9 @@ export function MainLayout() {
             alignItems: "center"
           }}
         >
-          <Breadcrumb
-            items={currentBread.map((label) => ({
-              title: label
-            }))}
-          />
+          <Breadcrumb items={currentBread.map((label) => ({ title: label }))} />
           <Space size={16}>
-            <Typography.Text type="secondary">Kỳ kế toán: Tháng 04/2026</Typography.Text>
+            <Typography.Text type="secondary">Ky ke toan: Thang 04/2026</Typography.Text>
             <BellOutlined style={{ fontSize: 16 }} />
             <Space size={8}>
               <Avatar size="small" icon={<UserOutlined />} />
@@ -168,7 +174,7 @@ export function MainLayout() {
                 navigate(ROUTES.LOGIN);
               }}
             >
-              Đăng xuất
+              Dang xuat
             </Button>
           </Space>
         </Header>
@@ -182,4 +188,3 @@ export function MainLayout() {
     </Layout>
   );
 }
-

@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import jwt, { type JwtPayload } from "jsonwebtoken";
+import jwt, { JsonWebTokenError, TokenExpiredError, type JwtPayload } from "jsonwebtoken";
 import { prisma } from "../../config/db";
 import { env } from "../../config/env";
 import type { AuthenticatedUser } from "../../types";
@@ -62,6 +62,16 @@ export async function authMiddleware(req: Request, _res: Response, next: NextFun
     req.user = user;
     next();
   } catch (error) {
+    if (error instanceof TokenExpiredError) {
+      next(new AppError("Session expired. Please login again.", 401, "UNAUTHORIZED"));
+      return;
+    }
+
+    if (error instanceof JsonWebTokenError) {
+      next(new AppError("Invalid access token. Please login again.", 401, "UNAUTHORIZED"));
+      return;
+    }
+
     next(error);
   }
 }

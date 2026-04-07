@@ -65,6 +65,15 @@ interface TotalsSnapshot {
   totalNetAmount: number;
 }
 
+interface ProductSelectOption {
+  value: string;
+  label: string;
+  skuCode: string;
+  productName: string;
+  stockQuantity: number;
+  searchText: string;
+}
+
 interface InputNumberFormatterInfo {
   userTyping: boolean;
   input: string;
@@ -230,6 +239,17 @@ export function VoucherFormPage() {
       result.set(item.id, item);
     });
     return result;
+  }, [productsQuery.data?.items]);
+
+  const productOptions = useMemo<ProductSelectOption[]>(() => {
+    return (productsQuery.data?.items ?? []).map((item) => ({
+      value: item.id,
+      label: `${item.skuCode} - ${item.name}`,
+      skuCode: item.skuCode,
+      productName: item.name,
+      stockQuantity: item.stockQuantity,
+      searchText: `${item.skuCode} ${item.name}`.toLowerCase()
+    }));
   }, [productsQuery.data?.items]);
 
   const createVoucherMutation = useMutation({
@@ -428,12 +448,21 @@ export function VoucherFormPage() {
         <AppSelect
           value={record.productId}
           showSearch
-          filterOption={false}
+          optionFilterProp="searchText"
           placeholder="Chọn hàng hóa"
-          options={(productsQuery.data?.items ?? []).map((item: ProductOption) => ({
-            value: item.id,
-            label: `${item.skuCode} - ${item.name}`
-          }))}
+          options={productOptions}
+          optionRender={(option) => {
+            const data = option.data as ProductSelectOption;
+            return (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span>{`${data.skuCode} - ${data.productName}`}</span>
+                <span style={{ color: "#8c8c8c", fontSize: 12, fontWeight: 500, whiteSpace: "nowrap" }}>
+                  {`SL: ${formatNumber(data.stockQuantity)}`}
+                </span>
+              </div>
+            );
+          }}
+          filterOption={(input, option) => ((option as ProductSelectOption | undefined)?.searchText ?? "").includes(input.toLowerCase())}
           onSearch={(keyword) => {
             debouncedProductSearch(keyword);
           }}

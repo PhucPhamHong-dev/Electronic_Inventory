@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import ExcelJS from "exceljs";
+import XLSX from "xlsx";
 import { z } from "zod";
 import { MasterDataService } from "../../services/MasterDataService";
 import { AppError } from "../../utils/errors";
@@ -11,7 +12,8 @@ const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(200).default(20),
   keyword: z.string().optional(),
-  type: z.enum(["SUPPLIER", "CUSTOMER", "BOTH"]).optional()
+  type: z.enum(["SUPPLIER", "CUSTOMER", "BOTH"]).optional(),
+  group: z.enum(["CUSTOMER", "SUPPLIER"]).optional()
 });
 
 const arLedgerQuerySchema = z.object({
@@ -28,6 +30,75 @@ const stockCardQuerySchema = z.object({
   endDate: z.string().optional()
 });
 
+const importPartnerQuerySchema = z.object({
+  group: z.enum(["CUSTOMER", "SUPPLIER"]).default("CUSTOMER")
+});
+
+const importModeSchema = z.enum(["CREATE_ONLY", "UPDATE_ONLY", "UPSERT"]);
+const rawImportRecordSchema = z.record(z.union([z.string(), z.number(), z.boolean(), z.null()]));
+
+const validateProductImportSchema = z.object({
+  jsonData: z.array(rawImportRecordSchema).min(1),
+  mappingObject: z.object({
+    skuCode: z.string().optional(),
+    name: z.string().optional(),
+    unitName: z.string().optional(),
+    warehouseName: z.string().optional(),
+    sellingPrice: z.string().optional()
+  }),
+  importMode: importModeSchema
+});
+
+const commitProductImportSchema = z.object({
+  rows: z.array(
+    z.object({
+      rowNumber: z.number().int().positive(),
+      status: z.enum(["valid", "invalid"]),
+      errorNote: z.string(),
+      mappedData: z.object({
+        skuCode: z.string(),
+        name: z.string(),
+        unitName: z.string(),
+        warehouseName: z.string(),
+        sellingPrice: z.number().nullable()
+      })
+    })
+  ).min(1),
+  importMode: importModeSchema
+});
+
+const validatePartnerImportSchema = z.object({
+  jsonData: z.array(rawImportRecordSchema).min(1),
+  mappingObject: z.object({
+    code: z.string().optional(),
+    name: z.string().optional(),
+    phone: z.string().optional(),
+    taxCode: z.string().optional(),
+    address: z.string().optional()
+  }),
+  importMode: importModeSchema,
+  group: z.enum(["CUSTOMER", "SUPPLIER"])
+});
+
+const commitPartnerImportSchema = z.object({
+  rows: z.array(
+    z.object({
+      rowNumber: z.number().int().positive(),
+      status: z.enum(["valid", "invalid"]),
+      errorNote: z.string(),
+      mappedData: z.object({
+        code: z.string(),
+        name: z.string(),
+        phone: z.string(),
+        taxCode: z.string(),
+        address: z.string()
+      })
+    })
+  ).min(1),
+  importMode: importModeSchema,
+  group: z.enum(["CUSTOMER", "SUPPLIER"])
+});
+
 const partnerIdParamsSchema = z.object({
   id: z.string().uuid()
 });
@@ -35,12 +106,29 @@ const partnerIdParamsSchema = z.object({
 const createProductSchema = z.object({
   skuCode: z.string().min(1),
   name: z.string().min(1),
-  costPrice: z.number().min(0).optional()
+  costPrice: z.number().min(0).optional(),
+  sellingPrice: z.number().min(0).optional(),
+  unitName: z.string().min(1).optional(),
+  warehouseName: z.string().optional()
 });
+
+const updateProductSchema = z
+  .object({
+    skuCode: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+    costPrice: z.number().min(0).optional(),
+    sellingPrice: z.number().min(0).optional(),
+    unitName: z.string().min(1).optional(),
+    warehouseName: z.string().optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required for update"
+  });
 
 const createPartnerSchema = z.object({
   code: z.string().min(1).optional(),
   name: z.string().min(1),
+  group: z.enum(["CUSTOMER", "SUPPLIER"]).optional(),
   phone: z.string().optional(),
   taxCode: z.string().optional(),
   address: z.string().optional(),
@@ -50,6 +138,7 @@ const createPartnerSchema = z.object({
 const updatePartnerSchema = z.object({
   code: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
+  group: z.enum(["CUSTOMER", "SUPPLIER"]).optional(),
   phone: z.string().optional(),
   taxCode: z.string().optional(),
   address: z.string().optional(),
@@ -100,6 +189,83 @@ function applyThinBorder(cell: ExcelJS.Cell): void {
   };
 }
 
+type ExcelRowData = Record<string, string | number | undefined>;
+
+function normalizeNumberValue(value: string | number | undefined): number {
+  if (value === undefined || value === null || value === "") {
+    return 0;
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  const normalized = value.replace(/\./g, "").replace(/,/g, ".").replace(/[^\d.-]/g, "");
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return parsed;
+}
+
+function parseProductsFromExcelBuffer(buffer: Buffer) {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    throw new AppError("File Excel không có sheet dữ liệu.", 400, "VALIDATION_ERROR");
+  }
+
+  const sheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json<ExcelRowData>(sheet, { defval: "" });
+
+  const pickValue = (row: ExcelRowData, candidates: string[]): string | number | undefined => {
+    for (const key of candidates) {
+      if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== "") {
+        return row[key];
+      }
+    }
+    return undefined;
+  };
+
+  return rows.map((row, index) => ({
+    rowNumber: index + 2,
+    skuCode: String(pickValue(row, ["Mã (*)", "Ma (*)", "Mã", "Ma"]) ?? "").trim(),
+    name: String(pickValue(row, ["Tên (*)", "Ten (*)", "Tên", "Ten"]) ?? "").trim(),
+    unitName: String(pickValue(row, ["Đơn vị tính chính", "Don vi tinh chinh", "Đơn vị", "Don vi"]) ?? "").trim() || undefined,
+    warehouseName: String(pickValue(row, ["Kho ngầm định", "Kho ngam dinh", "Kho"]) ?? "").trim() || undefined,
+    sellingPrice: normalizeNumberValue(
+      pickValue(row, ["Đơn giá bán", "Don gia ban", "Giá bán", "Gia ban"]) as string | number | undefined
+    )
+  }));
+}
+
+function parsePartnersFromExcelBuffer(buffer: Buffer) {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    throw new AppError("File Excel không có sheet dữ liệu.", 400, "VALIDATION_ERROR");
+  }
+
+  const sheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json<ExcelRowData>(sheet, { defval: "" });
+
+  const pickValue = (row: ExcelRowData, candidates: string[]): string | number | undefined => {
+    for (const key of candidates) {
+      if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== "") {
+        return row[key];
+      }
+    }
+    return undefined;
+  };
+
+  return rows.map((row, index) => ({
+    rowNumber: index + 2,
+    code: String(pickValue(row, ["Mã khách hàng", "Ma khach hang", "Mã nhà cung cấp", "Ma nha cung cap", "Mã đối tác", "Ma doi tac", "Mã", "Ma"]) ?? "").trim() || undefined,
+    name: String(pickValue(row, ["Tên khách hàng", "Ten khach hang", "Tên nhà cung cấp", "Ten nha cung cap", "Tên đối tác", "Ten doi tac", "Tên", "Ten"]) ?? "").trim(),
+    phone: String(pickValue(row, ["Điện thoại", "Dien thoai", "Số điện thoại", "So dien thoai"]) ?? "").trim() || undefined,
+    taxCode: String(pickValue(row, ["Mã số thuế", "Ma so thue", "MST"]) ?? "").trim() || undefined,
+    address: String(pickValue(row, ["Địa chỉ", "Dia chi"]) ?? "").trim() || undefined
+  }));
+}
+
 export class MasterDataController {
   static async getProducts(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -118,6 +284,105 @@ export class MasterDataController {
       const payload = createProductSchema.parse(req.body);
       const data = await service.createProduct(payload);
       sendSuccess(res, traceId, data, 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateProduct(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const params = partnerIdParamsSchema.parse(req.params);
+      const payload = updateProductSchema.parse(req.body);
+      const data = await service.updateProduct(params.id, payload);
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async importProducts(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const uploaded = (req as Request & { file?: Express.Multer.File }).file;
+      if (!uploaded) {
+        throw new AppError("Vui lòng upload file Excel.", 400, "VALIDATION_ERROR");
+      }
+
+      const rows = parseProductsFromExcelBuffer(uploaded.buffer);
+      const preview = rows.slice(0, 5);
+      const result = await service.importProductsFromRows(rows);
+
+      sendSuccess(res, traceId, {
+        ...result,
+        preview
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async validateProductImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const payload = validateProductImportSchema.parse(req.body);
+      const data = await service.validateProductImport(payload);
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async commitProductImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const payload = commitProductImportSchema.parse(req.body);
+      const data = await service.commitProductImport(payload);
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async importPartners(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const uploaded = (req as Request & { file?: Express.Multer.File }).file;
+      if (!uploaded) {
+        throw new AppError("Vui lòng upload file Excel.", 400, "VALIDATION_ERROR");
+      }
+
+      const query = importPartnerQuerySchema.parse(req.query);
+      const rows = parsePartnersFromExcelBuffer(uploaded.buffer);
+      const preview = rows.slice(0, 5);
+      const result = await service.importPartnersFromRows(rows, { group: query.group });
+
+      sendSuccess(res, traceId, {
+        ...result,
+        preview
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async validatePartnerImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const payload = validatePartnerImportSchema.parse(req.body);
+      const data = await service.validatePartnerImport(payload);
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async commitPartnerImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const payload = commitPartnerImportSchema.parse(req.body);
+      const data = await service.commitPartnerImport(payload);
+      sendSuccess(res, traceId, data);
     } catch (error) {
       next(error);
     }

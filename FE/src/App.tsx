@@ -6,13 +6,16 @@ import { MainLayout } from "./layouts/MainLayout";
 import { DashboardPage } from "./pages/Dashboard";
 import { LoginPage } from "./pages/Login";
 import { ArLedgerReportPage } from "./pages/ArLedgerReport";
+import { CashVouchersPage } from "./pages/CashVouchers";
 import { PartnerListPage } from "./pages/PartnerList";
+import { PurchaseDashboardPage } from "./pages/PurchaseDashboard";
 import { ProductsPage } from "./pages/Products";
 import { ReportsPage } from "./pages/Reports";
+import { SalesDashboardPage } from "./pages/SalesDashboard";
 import { StockCardPage } from "./pages/StockCard";
 import { SystemPage } from "./pages/System";
-import { VoucherHistoryPage } from "./pages/VoucherHistory";
 import { VoucherFormPage } from "./pages/VoucherForm";
+import { VoucherHistoryPage } from "./pages/VoucherHistory";
 
 export function App() {
   return (
@@ -29,8 +32,9 @@ export function App() {
       >
         <Route path={ROUTES.DASHBOARD} element={<DashboardPage />} />
         <Route path={ROUTES.VOUCHER_FORM} element={<VoucherFormPage />} />
-        <Route path={ROUTES.PURCHASE_VOUCHER} element={<VoucherFormPage />} />
-        <Route path={ROUTES.SALES_VOUCHER} element={<VoucherFormPage />} />
+        <Route path={ROUTES.PURCHASE_VOUCHER} element={<PurchaseDashboardPage />} />
+        <Route path={ROUTES.SALES_VOUCHER} element={<SalesDashboardPage />} />
+        <Route path={ROUTES.CASH_VOUCHERS} element={<CashVouchersPage />} />
         <Route path={ROUTES.MASTER_DATA} element={<ProductsPage />} />
         <Route path={ROUTES.PRODUCTS} element={<ProductsPage />} />
         <Route path={ROUTES.PARTNERS} element={<PartnerListPage />} />

@@ -1,15 +1,18 @@
 export type PartnerTypeValue = "SUPPLIER" | "CUSTOMER" | "BOTH";
+export type PartnerGroupValue = "CUSTOMER" | "SUPPLIER";
 
 export interface ListPartnersQueryDto {
   page: number;
   pageSize: number;
   keyword?: string;
   type?: PartnerTypeValue;
+  group?: PartnerGroupValue;
 }
 
 export interface CreatePartnerDto {
   code?: string;
   name: string;
+  group?: PartnerGroupValue;
   partnerType?: PartnerTypeValue;
   phone?: string;
   taxCode?: string;
@@ -19,6 +22,7 @@ export interface CreatePartnerDto {
 export interface UpdatePartnerDto {
   code?: string;
   name?: string;
+  group?: PartnerGroupValue;
   partnerType?: PartnerTypeValue;
   phone?: string;
   taxCode?: string;
@@ -29,6 +33,7 @@ export interface PartnerViewDto {
   id: string;
   code: string;
   name: string;
+  group: PartnerGroupValue;
   partnerType: PartnerTypeValue;
   phone: string | null;
   taxCode: string | null;
