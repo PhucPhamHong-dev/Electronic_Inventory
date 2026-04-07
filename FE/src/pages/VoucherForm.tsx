@@ -722,7 +722,7 @@ export function VoucherFormPage() {
                   placeholder="Chọn khách hàng/NCC"
                   options={(partnersQuery.data?.items ?? []).map((item: PartnerOption) => ({
                     value: item.id,
-                    label: `${item.code} - ${item.name}`
+                    label: item.name
                   }))}
                   dropdownRender={(menu) => (
                     <>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Button,
+  Card,
   Checkbox,
   Col,
   Divider,
@@ -160,6 +161,11 @@ export function SystemManagementPage() {
       notification.success({ message: "Đã lưu cấu hình" });
     }
   });
+
+  const saveCompanySettings = async (payload: CompanySettings) => {
+    companyForm.setFieldsValue(payload);
+    await updateCompanyMutation.mutateAsync(payload);
+  };
 
   const userColumns: ColumnsType<IUserItem> = useMemo(
     () => [
@@ -343,6 +349,53 @@ export function SystemManagementPage() {
                   </Button>
                 </Space>
               </Form>
+            )
+          },
+          {
+            key: "settings",
+            label: "Thiết lập hệ thống",
+            children: (
+              <Card bordered className="system-settings-card">
+                <Tabs
+                  items={[
+                    {
+                      key: "inventory",
+                      label: "Vật tư hàng hóa",
+                      children: (
+                        <div className="system-settings-row">
+                          <div>
+                            <Typography.Text strong>Cho phép xuất quá số lượng tồn</Typography.Text>
+                            <Typography.Paragraph type="secondary" style={{ marginTop: 6, marginBottom: 0 }}>
+                              Nếu bật, hệ thống sẽ không chặn các phiếu xuất khi số lượng trong kho không đủ.
+                            </Typography.Paragraph>
+                          </div>
+                          <Switch
+                            checked={companyForm.getFieldValue("allowNegativeStock") === true}
+                            loading={updateCompanyMutation.isPending}
+                            onChange={(checked) => {
+                              const currentValues = companyForm.getFieldsValue();
+                              void saveCompanySettings({
+                                ...currentValues,
+                                allowNegativeStock: checked
+                              });
+                            }}
+                          />
+                        </div>
+                      )
+                    },
+                    {
+                      key: "sales",
+                      label: "Bán hàng",
+                      children: <Typography.Text type="secondary">Thiết lập bán hàng sẽ được bổ sung tiếp.</Typography.Text>
+                    },
+                    {
+                      key: "finance",
+                      label: "Tài chính",
+                      children: <Typography.Text type="secondary">Thiết lập tài chính sẽ được bổ sung tiếp.</Typography.Text>
+                    }
+                  ]}
+                />
+              </Card>
             )
           }
         ]}

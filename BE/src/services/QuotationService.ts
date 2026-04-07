@@ -34,6 +34,7 @@ interface QuotationLineComputed {
   quantity: number;
   price: number;
   discountPercent: number;
+  unitPriceAfterDiscount: number;
   taxPercent: number;
   netAmount: number;
   grossAmount: number;
@@ -192,6 +193,7 @@ export class QuotationService {
         quantity: this.toNumber(item.quantity),
         price: this.toNumber(item.price),
         discountPercent: this.toNumber(item.discountPercent),
+        unitPriceAfterDiscount: this.toNumber(item.unitPriceAfterDiscount),
         taxPercent: this.toNumber(item.taxPercent),
         netAmount: this.toNumber(item.netAmount)
       }))
@@ -232,6 +234,7 @@ export class QuotationService {
                     quantity: this.decimal(line.quantity, 3),
                     price: this.decimal(line.price, 4),
                     discountPercent: this.decimal(line.discountPercent, 4),
+                    unitPriceAfterDiscount: this.decimal(line.unitPriceAfterDiscount, 4),
                     taxPercent: this.decimal(line.taxPercent, 4),
                     netAmount: this.decimal(line.netAmount, 4)
                   }))
@@ -337,6 +340,7 @@ export class QuotationService {
                 quantity: this.decimal(line.quantity, 3),
                 price: this.decimal(line.price, 4),
                 discountPercent: this.decimal(line.discountPercent, 4),
+                unitPriceAfterDiscount: this.decimal(line.unitPriceAfterDiscount, 4),
                 taxPercent: this.decimal(line.taxPercent, 4),
                 netAmount: this.decimal(line.netAmount, 4)
               }))
@@ -491,6 +495,7 @@ export class QuotationService {
       const quantity = roundTo(item.quantity, 3);
       const price = roundTo(item.price, 4);
       const discountPercent = roundTo(item.discountPercent ?? 0, 4);
+      const unitPriceAfterDiscount = roundTo(price * (1 - discountPercent / 100), 4);
       const taxPercent = roundTo(item.taxPercent ?? 0, 4);
       const grossAmount = roundTo(quantity * price, 4);
       const discountAmount = roundTo(grossAmount * (discountPercent / 100), 4);
@@ -504,6 +509,7 @@ export class QuotationService {
         quantity,
         price,
         discountPercent,
+        unitPriceAfterDiscount,
         taxPercent,
         netAmount,
         grossAmount,

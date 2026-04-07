@@ -15,6 +15,14 @@ interface TokenPayload extends JwtPayload {
   branchCode?: string;
 }
 
+function isTokenExpiredError(error: unknown): boolean {
+  return error instanceof TokenExpiredError || (error instanceof Error && error.name === "TokenExpiredError");
+}
+
+function isJsonWebTokenError(error: unknown): boolean {
+  return error instanceof JsonWebTokenError || (error instanceof Error && error.name === "JsonWebTokenError");
+}
+
 function parseToken(req: Request): string {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -62,12 +70,12 @@ export async function authMiddleware(req: Request, _res: Response, next: NextFun
     req.user = user;
     next();
   } catch (error) {
-    if (error instanceof TokenExpiredError) {
+    if (isTokenExpiredError(error)) {
       next(new AppError("Session expired. Please login again.", 401, "UNAUTHORIZED"));
       return;
     }
 
-    if (error instanceof JsonWebTokenError) {
+    if (isJsonWebTokenError(error)) {
       next(new AppError("Invalid access token. Please login again.", 401, "UNAUTHORIZED"));
       return;
     }

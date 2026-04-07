@@ -73,6 +73,8 @@ interface CreateVoucherOptions {
   afterPersist?: (tx: Tx, voucherId: string) => Promise<void>;
 }
 
+const ALLOW_NEGATIVE_STOCK_KEY = "allow_negative_stock";
+
 interface OriginalSalesItemCost {
   productId: string;
   unitCost: number;
@@ -1831,6 +1833,7 @@ export class VoucherService {
     partnerId: string
   ): Promise<VoucherPayloadResult> {
     this.validateItems(items);
+    const allowNegativeStock = await this.getAllowNegativeStock(tx);
     const products = await this.lockProducts(tx, [...new Set(items.map((item) => item.productId))]);
     const productMap = new Map(products.map((item) => [item.id, item]));
     const totals = this.initTotals();
@@ -1845,7 +1848,7 @@ export class VoucherService {
       const stockBefore = this.toNumber(product.stock_quantity);
       const stockAfter = roundTo(stockBefore - line.quantity, 3);
 
-      if (stockAfter < 0) {
+      if (!allowNegativeStock && stockAfter < 0) {
         throw new AppError(`Insufficient stock for product ${product.sku_code}`, 409, "INSUFFICIENT_STOCK", {
           productId: product.id,
           available: stockBefore,
@@ -1907,6 +1910,19 @@ export class VoucherService {
       totals: this.roundTotals(totals),
       partnerId
     };
+  }
+
+  private async getAllowNegativeStock(tx: Tx): Promise<boolean> {
+    const setting = await tx.systemSetting.findUnique({
+      where: {
+        settingKey: ALLOW_NEGATIVE_STOCK_KEY
+      },
+      select: {
+        valueText: true
+      }
+    });
+
+    return (setting?.valueText ?? "false").toLowerCase() === "true";
   }
 
   private async applySalesReturnPayload(

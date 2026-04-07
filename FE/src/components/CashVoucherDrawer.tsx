@@ -502,7 +502,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
   }, [partnersQuery.data?.items]);
 
   const partnerOptions = useMemo(
-    () => (partnersQuery.data?.items ?? []).map((item) => ({ value: item.id, label: `${item.code} - ${item.name}` })),
+    () => (partnersQuery.data?.items ?? []).map((item) => ({ value: item.id, label: item.name })),
     [partnersQuery.data?.items]
   );
 
@@ -1703,7 +1703,6 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
     </>
   );
 }
-
 
 
 

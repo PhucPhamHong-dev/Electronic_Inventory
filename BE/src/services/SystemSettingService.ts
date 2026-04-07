@@ -5,7 +5,8 @@ import type { CompanySettingsDto } from "../types/system.dto";
 const COMPANY_KEYS = {
   companyName: "company_name",
   companyAddress: "company_address",
-  companyPhone: "company_phone"
+  companyPhone: "company_phone",
+  allowNegativeStock: "allow_negative_stock"
 } as const;
 
 export class SystemSettingService {
@@ -28,7 +29,8 @@ export class SystemSettingService {
     return {
       companyName: map.get(COMPANY_KEYS.companyName) ?? "",
       companyAddress: map.get(COMPANY_KEYS.companyAddress) ?? "",
-      companyPhone: map.get(COMPANY_KEYS.companyPhone) ?? ""
+      companyPhone: map.get(COMPANY_KEYS.companyPhone) ?? "",
+      allowNegativeStock: (map.get(COMPANY_KEYS.allowNegativeStock) ?? "false").toLowerCase() === "true"
     };
   }
 
@@ -36,7 +38,8 @@ export class SystemSettingService {
     const normalized: CompanySettingsDto = {
       companyName: payload.companyName.trim(),
       companyAddress: payload.companyAddress.trim(),
-      companyPhone: payload.companyPhone.trim()
+      companyPhone: payload.companyPhone.trim(),
+      allowNegativeStock: payload.allowNegativeStock === true
     };
 
     await this.db.$transaction([
@@ -54,6 +57,11 @@ export class SystemSettingService {
         where: { settingKey: COMPANY_KEYS.companyPhone },
         update: { valueText: normalized.companyPhone },
         create: { settingKey: COMPANY_KEYS.companyPhone, valueText: normalized.companyPhone }
+      }),
+      this.db.systemSetting.upsert({
+        where: { settingKey: COMPANY_KEYS.allowNegativeStock },
+        update: { valueText: String(normalized.allowNegativeStock) },
+        create: { settingKey: COMPANY_KEYS.allowNegativeStock, valueText: String(normalized.allowNegativeStock) }
       })
     ]);
 

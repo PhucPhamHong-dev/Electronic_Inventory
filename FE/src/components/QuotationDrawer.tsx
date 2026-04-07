@@ -26,6 +26,11 @@ import { createQuotation, fetchQuotationById, updateQuotation } from "../service
 import type { PartnerOption, ProductOption, QuotationDetail } from "../types/voucher";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 
+const quotationUnitPriceFormatter = new Intl.NumberFormat("vi-VN", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0
+});
+
 interface QuotationDrawerProps {
   open: boolean;
   quotationId?: string | null;
@@ -518,6 +523,20 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
         renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { discountPercent: nextValue }), { max: 100 })
     },
     {
+      title: "Đơn giá sau CK",
+      key: "unitPriceAfterDiscount",
+      width: 130,
+      align: "right",
+      render: (_value, record) => {
+        const unitPriceAfterDiscount = record.price * (1 - record.discountPercent / 100);
+        return (
+          <Typography.Text className="quotation-readonly-value">
+            {quotationUnitPriceFormatter.format(unitPriceAfterDiscount)}
+          </Typography.Text>
+        );
+      }
+    },
+    {
       title: "% Thuế GTGT",
       dataIndex: "taxPercent",
       key: "taxPercent",
@@ -678,12 +697,12 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
                       <Space.Compact style={{ width: "100%" }}>
                         <AppSelect
                           showSearch
-                          placeholder="Chọn mã khách hàng"
+                          placeholder="Chọn khách hàng"
                           optionFilterProp="label"
                           style={{ width: "100%" }}
                           options={(partnersQuery.data?.items ?? []).map((item) => ({
                             value: item.id,
-                            label: `${item.code} - ${item.name}`
+                            label: item.name
                           }))}
                           onChange={(value) => handlePartnerChange(value as string | undefined)}
                         />
@@ -868,5 +887,3 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
     </>
   );
 }
-
-

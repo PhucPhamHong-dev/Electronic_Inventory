@@ -157,7 +157,7 @@ export function ArLedgerReportPage() {
           }}
           options={(partnersQuery.data?.items ?? []).map((partner: PartnerOption) => ({
             value: partner.id,
-            label: `${partner.code} - ${partner.name}`
+            label: partner.name
           }))}
         />
 

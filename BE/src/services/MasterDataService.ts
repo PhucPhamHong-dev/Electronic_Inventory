@@ -904,7 +904,7 @@ export class MasterDataService {
     try {
       const partnerType = payload.partnerType ?? "CUSTOMER";
       const group = payload.group ?? (partnerType === "SUPPLIER" ? "SUPPLIER" : "CUSTOMER");
-      const code = payload.code?.trim() || (await this.generatePartnerCode(partnerType));
+      const code = payload.code?.trim() || (await this.generatePartnerCode(group));
 
       const created = await this.db.partner.create({
         data: {
@@ -1310,22 +1310,28 @@ export class MasterDataService {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
-  private async generatePartnerCode(partnerType: PartnerTypeValue): Promise<string> {
-    const prefix = partnerType === "SUPPLIER" ? "NCC" : "KH";
-
-    for (let i = 0; i < 5; i += 1) {
-      const now = Date.now().toString().slice(-8);
-      const code = `${prefix}${now}${i}`;
-      const exists = await this.db.partner.findUnique({
-        where: { code },
-        select: { id: true }
-      });
-      if (!exists) {
-        return code;
+  private async generatePartnerCode(target: PartnerTypeValue | PartnerGroupValue): Promise<string> {
+    const prefix = target === "SUPPLIER" ? "NCC" : "KH";
+    const latestPartner = await this.db.partner.findFirst({
+      where: {
+        code: {
+          startsWith: prefix
+        }
+      },
+      select: {
+        code: true
+      },
+      orderBy: {
+        code: "desc"
       }
-    }
+    });
 
-    throw new AppError("Unable to generate partner code", 500, "INTERNAL_ERROR");
+    const latestNumber = latestPartner?.code
+      ? Number.parseInt(latestPartner.code.slice(prefix.length), 10)
+      : 0;
+
+    const nextNumber = Number.isFinite(latestNumber) ? latestNumber + 1 : 1;
+    return `${prefix}${String(nextNumber).padStart(3, "0")}`;
   }
 
   private buildStockCardDescription(input: {

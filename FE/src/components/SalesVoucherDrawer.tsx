@@ -26,6 +26,7 @@ import { PartnerModal, type PartnerFormValues } from "./PartnerModal";
 import { createPartner, createProduct, fetchPartners, fetchProducts, updatePartner } from "../services/masterData.api";
 import { fetchQuotationById } from "../services/quotation.api";
 import { createPurchaseVoucher, createSalesVoucher, downloadVoucherPdf, fetchVoucherById, payVoucher, updateVoucher } from "../services/voucher.api";
+import { fetchCompanySettings } from "../services/system.api";
 import type {
   CreateVoucherPayload,
   PaymentMethod,
@@ -81,6 +82,11 @@ interface SalesRow {
   discountAmount: number;
   taxAmount: number;
   lineTotal: number;
+}
+
+interface StockAlertMeta {
+  exceedsStock: boolean;
+  availableStock: number;
 }
 
 interface ProductSelectOption {
@@ -276,6 +282,12 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     enabled: open && !isPurchaseMode && !isEditMode && Boolean(sourceQuotationId)
   });
 
+  const settingsQuery = useQuery({
+    queryKey: ["system-settings"],
+    queryFn: fetchCompanySettings,
+    enabled: open && !isPurchaseMode
+  });
+
   const createMutation = useMutation({
     mutationFn: (payload: CreateVoucherPayload) => (isPurchaseMode ? createPurchaseVoucher(payload) : createSalesVoucher(payload))
   });
@@ -356,7 +368,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
           ? item.partnerType === "SUPPLIER" || item.partnerType === "BOTH"
           : item.partnerType === "CUSTOMER" || item.partnerType === "BOTH"
       )
-      .map((item) => ({ value: item.id, label: `${item.code} - ${item.name}` })), [isPurchaseMode, partnersQuery.data?.items]);
+      .map((item) => ({ value: item.id, label: item.name })), [isPurchaseMode, partnersQuery.data?.items]);
 
   useEffect(() => {
     if (!voucherDetailQuery.data) return;
@@ -423,6 +435,31 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     () => rows.filter((row) => row.rowType === "ITEM").reduce((sum, row) => sum + row.quantity, 0),
     [rows]
   );
+
+  const allowNegativeStock = settingsQuery.data?.allowNegativeStock === true;
+
+  const stockAlerts = useMemo<Record<string, StockAlertMeta>>(
+    () =>
+      rows.reduce<Record<string, StockAlertMeta>>((acc, row) => {
+        if (isPurchaseMode || row.rowType === "NOTE" || !row.productId) {
+          return acc;
+        }
+        const availableStock = productMap.get(row.productId)?.stockQuantity ?? 0;
+        acc[row.key] = {
+          exceedsStock: row.quantity > availableStock,
+          availableStock
+        };
+        return acc;
+      }, {}),
+    [isPurchaseMode, productMap, rows]
+  );
+
+  const hasStockViolation = useMemo(
+    () => !isPurchaseMode && rows.some((row) => stockAlerts[row.key]?.exceedsStock),
+    [isPurchaseMode, rows, stockAlerts]
+  );
+
+  const shouldBlockSaveForStock = !isPurchaseMode && !allowNegativeStock && hasStockViolation;
 
   const handlePartnerChange = (partnerId: string | undefined) => {
     const partner = partnerId ? partnerMap.get(partnerId) : undefined;
@@ -555,6 +592,10 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
 
   const handleSave = async () => {
     if (actionLoading) return;
+    if (shouldBlockSaveForStock) {
+      message.error("Số lượng xuất đang vượt quá tồn kho hiện tại.");
+      return;
+    }
     try {
       setActionLoading(true);
       const persisted = await persistVoucher();
@@ -588,6 +629,10 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
 
   const handleSaveAndPrint = async () => {
     if (actionLoading) return;
+    if (shouldBlockSaveForStock) {
+      message.error("Số lượng xuất đang vượt quá tồn kho hiện tại.");
+      return;
+    }
     try {
       setActionLoading(true);
       const persisted = await persistVoucher();
@@ -631,7 +676,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       title: "Mã hàng",
       dataIndex: "productId",
       key: "productId",
-      width: 180,
+      width: 156,
       render: (_value, record) => {
         if (record.rowType === "NOTE") return <Typography.Text type="secondary">Ghi chú</Typography.Text>;
         return (
@@ -664,24 +709,40 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       title: "Tên hàng",
       dataIndex: "productName",
       key: "productName",
-      width: 260,
+      ellipsis: true,
       render: (value: string | undefined, record) => record.rowType === "NOTE" ? <Input value={record.noteText} placeholder="Nhập ghi chú cho chứng từ" onChange={(event) => updateRow(record.key, { noteText: event.target.value })} /> : value || productMap.get(record.productId ?? "")?.name || "-"
     },
-    { title: "ĐVT", dataIndex: "unitName", key: "unitName", width: 80, align: "center", render: (value: string, record) => (record.rowType === "NOTE" ? "-" : value || "-") },
+    { title: "ĐVT", dataIndex: "unitName", key: "unitName", width: 72, align: "center", render: (value: string, record) => (record.rowType === "NOTE" ? "-" : value || "-") },
     {
       title: "Số lượng",
       dataIndex: "quantity",
       key: "quantity",
-      width: 132,
+      width: 110,
       align: "right",
-      render: (value: number, record) =>
-        record.rowType === "NOTE" ? "-" : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { quantity: nextValue }))
+      render: (value: number, record) => {
+        if (record.rowType === "NOTE") {
+          return "-";
+        }
+        const stockAlert = stockAlerts[record.key];
+        return (
+          <div>
+            {renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { quantity: nextValue }))}
+            {stockAlert?.exceedsStock ? (
+              <Typography.Text className={allowNegativeStock ? "stock-warning-text" : "stock-error-text"}>
+                {allowNegativeStock
+                  ? "Số lượng xuất vượt quá tồn kho hiện tại"
+                  : "Số lượng xuất vượt quá tồn kho hiện tại. Không thể lưu phiếu."}
+              </Typography.Text>
+            ) : null}
+          </div>
+        );
+      }
     },
     {
       title: "Đơn giá",
       dataIndex: "unitPrice",
       key: "unitPrice",
-      width: 140,
+      width: 128,
       align: "right",
       render: (value: number, record) =>
         record.rowType === "NOTE" ? "-" : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { unitPrice: nextValue }))
@@ -690,7 +751,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       title: "% Chiết khấu",
       dataIndex: "discountRate",
       key: "discountRate",
-      width: 132,
+      width: 108,
       align: "right",
       render: (value: number, record) =>
         record.rowType === "NOTE" ? "-" : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { discountRate: nextValue }), { max: 100 })
@@ -698,7 +759,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     {
       title: "Đơn giá sau CK",
       key: "unitPriceAfterDiscount",
-      width: 150,
+      width: 128,
       align: "right",
       render: (_value, record) => {
         if (record.rowType === "NOTE") {
@@ -712,7 +773,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       title: "% Thuế GTGT",
       dataIndex: "taxRate",
       key: "taxRate",
-      width: 132,
+      width: 108,
       align: "right",
       render: (value: number, record) =>
         record.rowType === "NOTE" ? "-" : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { taxRate: nextValue }), { max: 100 })
@@ -721,7 +782,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       title: "Thành tiền",
       dataIndex: "lineTotal",
       key: "lineTotal",
-      width: 160,
+      width: 148,
       align: "right",
       render: (value: number, record) => record.rowType === "NOTE" ? "-" : <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
     },
@@ -738,7 +799,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         onClose={onClose}
         rootClassName="sales-voucher-drawer"
         styles={{ body: { paddingBottom: 12 } }}
-        footer={<div className="sales-voucher-sticky-footer sales-voucher-sticky-footer-dark"><Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary" onClick={onClose}>Hủy</Button><Space><Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary" onClick={() => void handleDownloadPdf()}>Tải PDF</Button><Button className="sales-voucher-footer-button sales-voucher-footer-button-primary" loading={actionLoading} onClick={() => void handleSave()}>Cất</Button><Button className="sales-voucher-footer-button sales-voucher-footer-button-primary" loading={actionLoading} onClick={() => void handleSaveAndPrint()}>Cất và In <DownOutlined /></Button></Space></div>}
+        footer={<div className="sales-voucher-sticky-footer sales-voucher-sticky-footer-dark"><Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary" onClick={onClose}>Hủy</Button><Space><Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary" onClick={() => void handleDownloadPdf()}>Tải PDF</Button><Button className="sales-voucher-footer-button sales-voucher-footer-button-primary" loading={actionLoading} disabled={shouldBlockSaveForStock} onClick={() => void handleSave()}>Cất</Button><Button className="sales-voucher-footer-button sales-voucher-footer-button-primary" loading={actionLoading} disabled={shouldBlockSaveForStock} onClick={() => void handleSaveAndPrint()}>Cất và In <DownOutlined /></Button></Space></div>}
       >
         <div className="sales-voucher-screen">
           <div className="sales-voucher-topbar"><Space wrap className="sales-voucher-payment-row"><><Radio.Group value={paymentFlow} onChange={(event) => setPaymentFlow(event.target.value as "UNPAID" | "IMMEDIATE")} options={paymentFlowOptions} />{paymentFlow === "IMMEDIATE" ? <AppSelect value={paymentMethod} style={{ width: 160 }} options={[{ value: "CASH", label: "Tiền mặt" }, { value: "TRANSFER", label: "Chuyển khoản" }]} onChange={(value) => setPaymentMethod(value as PaymentMethod)} /> : null}</></Space><div className="sales-voucher-topbar-total"><span>Tổng tiền thanh toán</span><strong>{formatCurrency(totals.totalNetAmount)}</strong></div></div>
@@ -759,7 +820,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
               </div>
             </div>
           </Form>
-          <div className="sales-voucher-grid-section"><Table<SalesRow> rowKey="key" size="small" bordered tableLayout="fixed" className="voucher-detail-table sales-voucher-detail-table sales-voucher-detail-table-misa" pagination={false} columns={columns} dataSource={rows} scroll={{ x: 1470, y: 320 }} /></div>
+          <div className="sales-voucher-grid-section"><Table<SalesRow> rowKey="key" size="small" bordered tableLayout="fixed" className="voucher-detail-table sales-voucher-detail-table sales-voucher-detail-table-misa" pagination={false} columns={columns} dataSource={rows} scroll={{ y: 320 }} /></div>
           <div className="sales-voucher-table-footer sales-voucher-table-footer-misa"><div className="sales-voucher-footer-actions-left"><Typography.Text type="secondary">{`Tổng số: ${rows.length} bản ghi`}</Typography.Text><Space wrap><Button icon={<PlusOutlined />} onClick={addRow}>Thêm dòng</Button><Button onClick={addNoteRow}>Thêm ghi chú</Button><Button danger onClick={clearRows}>Xóa hết dòng</Button></Space></div><div className="voucher-summary-block sales-voucher-summary-block"><Row justify="space-between" className="voucher-summary-row"><Typography.Text>Tổng tiền hàng</Typography.Text><Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalAmount)}</Typography.Text></Row><Row justify="space-between" className="voucher-summary-row"><Typography.Text>Thuế GTGT</Typography.Text><Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalTaxAmount)}</Typography.Text></Row><Row justify="space-between" className="voucher-summary-row voucher-summary-row-total"><Typography.Text strong>Tổng tiền thanh toán</Typography.Text><Typography.Text strong className="voucher-summary-value voucher-summary-value-total">{formatCurrency(totals.totalNetAmount)}</Typography.Text></Row></div></div>
         </div>
       </Drawer>

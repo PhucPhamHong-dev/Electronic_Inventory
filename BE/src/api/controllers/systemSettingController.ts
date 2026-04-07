@@ -9,7 +9,8 @@ const service = new SystemSettingService();
 const updateCompanySettingsSchema = z.object({
   companyName: z.string().min(1),
   companyAddress: z.string().min(1),
-  companyPhone: z.string().min(1)
+  companyPhone: z.string().min(1),
+  allowNegativeStock: z.boolean().default(false)
 });
 
 function assertContext(req: Request): string {

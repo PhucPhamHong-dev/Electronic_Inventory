@@ -8,6 +8,7 @@ import { QuotationDrawer } from "../components/QuotationDrawer";
 import { SalesDebtTab } from "../components/SalesDebtTab";
 import { SalesReturnDrawer } from "../components/SalesReturnDrawer";
 import { SalesVoucherDrawer } from "../components/SalesVoucherDrawer";
+import { PartnerManagementPage } from "./categories/PartnerManagement";
 import {
   deleteQuotation,
   fetchQuotationById,
@@ -719,6 +720,16 @@ export function SalesDashboardPage() {
     [quotationsQuery.data?.items]
   );
 
+  const salesSummary = useMemo(() => {
+    const summary = vouchersQuery.data?.summary;
+    return {
+      totalCount: vouchersQuery.data?.items.length ?? 0,
+      totalAmount: summary?.totalAmount ?? 0,
+      totalTaxAmount: summary?.totalTaxAmount ?? 0,
+      totalNetAmount: summary?.totalNetAmount ?? 0
+    };
+  }, [vouchersQuery.data?.items, vouchersQuery.data?.summary]);
+
   const activeTabLabel = workflowTabs.find((item) => item.key === activeWorkflowTab)?.label ?? "";
 
   return (
@@ -806,6 +817,27 @@ export function SalesDashboardPage() {
                 onClick: () => setSelectedVoucherId(record.id)
               })}
               rowClassName={(record) => (record.id === selectedVoucherId ? "sales-master-active-row" : "")}
+              summary={() => (
+                <Table.Summary.Row>
+                  <Table.Summary.Cell index={0} colSpan={3} align="right">
+                    <Space size={8}>
+                      <Typography.Text strong>Tổng cộng</Typography.Text>
+                      <Typography.Text type="secondary">{`${salesSummary.totalCount} phiếu`}</Typography.Text>
+                    </Space>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={1} align="right">
+                    <Typography.Text strong>{formatCurrency(salesSummary.totalAmount)}</Typography.Text>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={2} align="right">
+                    <Typography.Text>{formatCurrency(salesSummary.totalTaxAmount)}</Typography.Text>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={3} colSpan={3} align="right">
+                    <Typography.Text strong className="sales-summary-net">
+                      {`Tổng thanh toán: ${formatCurrency(salesSummary.totalNetAmount)}`}
+                    </Typography.Text>
+                  </Table.Summary.Cell>
+                </Table.Summary.Row>
+              )}
             />
           </div>
 
@@ -1021,6 +1053,8 @@ export function SalesDashboardPage() {
         </div>
       ) : activeWorkflowTab === "AR" ? (
         <SalesDebtTab />
+      ) : activeWorkflowTab === "CUSTOMERS" ? (
+        <PartnerManagementPage />
       ) : (
         <div className="sales-workflow-placeholder">
           <Typography.Text>{`Chức năng ${activeTabLabel} đang được phát triển, vui lòng quay lại sau`}</Typography.Text>
@@ -1067,5 +1101,3 @@ export function SalesDashboardPage() {
     </div>
   );
 }
-
-

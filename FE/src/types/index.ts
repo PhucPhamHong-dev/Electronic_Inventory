@@ -46,4 +46,5 @@ export interface CompanySettings {
   companyName: string;
   companyAddress: string;
   companyPhone: string;
+  allowNegativeStock: boolean;
 }

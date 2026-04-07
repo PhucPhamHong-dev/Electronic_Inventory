@@ -321,6 +321,7 @@ model QuotationDetail {
   quantity        Decimal  @db.Decimal(18, 3)
   price           Decimal  @db.Decimal(18, 4)
   discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(9, 4)
+  unitPriceAfterDiscount Decimal @default(0) @map("unit_price_after_discount") @db.Decimal(18, 4)
   taxPercent      Decimal  @default(0) @map("tax_percent") @db.Decimal(9, 4)
   netAmount       Decimal  @default(0) @map("net_amount") @db.Decimal(18, 4)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

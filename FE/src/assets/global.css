@@ -343,6 +343,15 @@ body,
   background: #fff7e6 !important;
 }
 
+.sales-master-table .ant-table-summary > tr > td {
+  background: #faf7e8;
+}
+
+.sales-summary-net {
+  font-size: 15px;
+  color: #0958d9;
+}
+
 .sales-workflow-bar {
   height: 42px;
   display: flex;
@@ -600,6 +609,7 @@ body,
 .sales-voucher-grid-section {
   background: #ffffff;
   border: 1px solid #d8def7;
+  overflow-x: hidden;
 }
 
 .sales-voucher-grid-toolbar {
@@ -666,6 +676,22 @@ body,
 
 .sales-voucher-number-editor {
   width: 100%;
+}
+
+.stock-warning-text,
+.stock-error-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.stock-warning-text {
+  color: #d48806;
+}
+
+.stock-error-text {
+  color: #cf1322;
 }
 
 .sales-voucher-detail-table .sales-voucher-number-editor .ant-input-number {
@@ -991,6 +1017,10 @@ body,
   min-width: 300px;
   margin-left: auto;
   flex: 0 0 300px;
+}
+
+.quotation-readonly-value {
+  color: #595959;
 }
 
 .quotation-entry-left-tools .ant-space {
@@ -2017,6 +2047,19 @@ body,
   border: 1px solid #d9e2f2;
   border-radius: 8px;
   padding: 16px;
+}
+
+.system-settings-card {
+  border-color: #d9d9d9;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.system-settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 8px 0;
 }
 
 @media (max-width: 1200px) {

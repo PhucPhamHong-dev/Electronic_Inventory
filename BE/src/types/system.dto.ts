@@ -34,4 +34,5 @@ export interface CompanySettingsDto {
   companyName: string;
   companyAddress: string;
   companyPhone: string;
+  allowNegativeStock: boolean;
 }

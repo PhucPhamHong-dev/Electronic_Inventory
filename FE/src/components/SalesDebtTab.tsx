@@ -455,7 +455,7 @@ export function SalesDebtTab() {
           value: partner.id,
           label: (
             <span>
-              {`${partner.code} - ${partner.name} `}
+              {`${partner.name} `}
               <span style={{ color: "#cf1322", fontWeight: 600 }}>
                 {`(Công nợ: ${formatCurrency(partner.currentDebt)})`}
               </span>
@@ -912,4 +912,3 @@ export function SalesDebtTab() {
     </>
   );
 }
-

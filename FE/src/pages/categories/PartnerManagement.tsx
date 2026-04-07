@@ -200,7 +200,6 @@ export function PartnerManagementPage() {
   ];
 
   const modalLoading = createPartnerMutation.isPending || updatePartnerMutation.isPending;
-  const pageTitle = activeGroup === "SUPPLIER" ? "Danh sách nhà cung cấp" : "Danh sách khách hàng";
   const addButtonLabel = activeGroup === "SUPPLIER" ? "Thêm nhà cung cấp" : "Thêm khách hàng";
 
   return (
@@ -212,11 +211,6 @@ export function PartnerManagementPage() {
       }}
     >
       <div className="partner-page">
-        <Typography.Title level={2} className="partner-page-title">
-          {pageTitle}
-        </Typography.Title>
-        <Typography.Text className="partner-page-backlink">Tất cả danh mục</Typography.Text>
-
         <div className="partner-page-summary">
           <div className="partner-summary-card partner-summary-card-boxed partner-summary-card-accent">
             <div className="partner-summary-value">{formatDebt(summary.overdue)}</div>

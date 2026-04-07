@@ -41,6 +41,7 @@ interface SalesReturnFormValues {
   voucherDate: Dayjs;
   originalVoucherId?: string;
   partnerId?: string;
+  partnerCode?: string;
   customerName?: string;
   customerAddress?: string;
   customerTaxCode?: string;
@@ -178,6 +179,7 @@ export function SalesReturnDrawer(props: SalesReturnDrawerProps) {
     const detail = originalVoucherDetailQuery.data;
     form.setFieldsValue({
       partnerId: detail.partnerId ?? undefined,
+      partnerCode: detail.partnerCode ?? "",
       customerName: detail.partnerName ?? "",
       customerAddress: detail.partnerAddress ?? "",
       customerTaxCode: detail.partnerTaxCode ?? "",
@@ -393,6 +395,9 @@ export function SalesReturnDrawer(props: SalesReturnDrawerProps) {
         </div>
 
         <Form<SalesReturnFormValues> form={form} layout="vertical" className="sales-voucher-form">
+          <Form.Item name="partnerId" hidden>
+            <Input />
+          </Form.Item>
           <div className="sales-voucher-meta-layout">
             <div className="sales-voucher-panel sales-voucher-panel-main">
               <div className="sales-voucher-panel-title">Đối tượng</div>
@@ -424,7 +429,7 @@ export function SalesReturnDrawer(props: SalesReturnDrawerProps) {
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item label="Mã khách hàng" name="partnerId">
+                  <Form.Item label="Mã khách hàng" name="partnerCode">
                     <Input readOnly />
                   </Form.Item>
                 </Col>

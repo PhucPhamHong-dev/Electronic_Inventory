@@ -127,9 +127,11 @@ export function PartnerModal(props: PartnerModalProps) {
               <Form.Item
                 label={isCustomerBase ? "Mã khách hàng" : "Mã nhà cung cấp"}
                 name="code"
-                rules={[{ required: true, message: `Vui lòng nhập ${isCustomerBase ? "mã khách hàng" : "mã nhà cung cấp"}` }]}
               >
-                <Input placeholder={isCustomerBase ? "Ví dụ: KH0001" : "Ví dụ: NCC0001"} maxLength={64} />
+                <Input
+                  placeholder={mode === "create" ? "Để trống để hệ thống tự sinh" : (isCustomerBase ? "Ví dụ: KH001" : "Ví dụ: NCC001")}
+                  maxLength={64}
+                />
               </Form.Item>
             </Col>
           </Row>

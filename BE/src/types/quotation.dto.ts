@@ -70,6 +70,7 @@ export interface QuotationDetailDto {
     quantity: number;
     price: number;
     discountPercent: number;
+    unitPriceAfterDiscount: number;
     taxPercent: number;
     netAmount: number;
   }>;
