@@ -1,13 +1,28 @@
-import { DownOutlined, PlusOutlined } from "@ant-design/icons";
+import { DownOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, DatePicker, Dropdown, Input, Space, Table, Tag, Typography, message } from "antd";
 import type { MenuProps, TableColumnsType } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ImportWizardModal } from "../components/ImportWizardModal";
+import { commitImportData, validateImportData } from "../services/import.api";
 import { SalesVoucherDrawer } from "../components/SalesVoucherDrawer";
 import { deleteVoucher, downloadVoucherPdf, duplicateVoucher, fetchVoucherById, fetchVouchers, payVoucher, unpostVoucher } from "../services/voucher.api";
 import type { VoucherDetail, VoucherHistoryItem } from "../types/voucher";
 import { formatCurrency, formatNumber } from "../utils/formatters";
+
+interface PurchaseListImportMappedData extends Record<string, string | number | boolean | null> {
+  voucherDate: string;
+  voucherNo: string;
+  partnerCode: string;
+  partnerName: string;
+  note: string;
+  totalAmount: number;
+  totalDiscount: number;
+  taxAmount: number;
+  totalNetAmount: number;
+  paymentStatus: "UNPAID" | "PARTIAL" | "PAID";
+}
 
 const paymentStatusMeta = {
   UNPAID: { label: "Chưa thanh toán", color: "red" },
@@ -41,6 +56,7 @@ export function PurchaseDashboardPage() {
   const [selectedVoucherRowKeys, setSelectedVoucherRowKeys] = useState<string[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingVoucherId, setEditingVoucherId] = useState<string | null>(null);
+  const [openImportModal, setOpenImportModal] = useState(false);
 
   const pageSize = 20;
 
@@ -341,17 +357,22 @@ export function PurchaseDashboardPage() {
                 }}
               />
             </Space>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              style={{ background: "#0050b3", borderColor: "#0050b3" }}
-              onClick={() => {
-                setEditingVoucherId(null);
-                setDrawerOpen(true);
-              }}
-            >
-              Thêm mới
-            </Button>
+            <Space>
+              <Button icon={<UploadOutlined />} onClick={() => setOpenImportModal(true)}>
+                Nhập từ Excel
+              </Button>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                style={{ background: "#0050b3", borderColor: "#0050b3" }}
+                onClick={() => {
+                  setEditingVoucherId(null);
+                  setDrawerOpen(true);
+                }}
+              >
+                Thêm mới
+              </Button>
+            </Space>
           </Space>
 
           <Table<VoucherHistoryItem>
@@ -424,6 +445,85 @@ export function PurchaseDashboardPage() {
         }}
         onSuccess={() => {
           void Promise.all([vouchersQuery.refetch(), voucherDetailQuery.refetch()]);
+        }}
+      />
+
+      <ImportWizardModal<PurchaseListImportMappedData>
+        open={openImportModal}
+        title="Nhập danh sách nhập hàng từ Excel"
+        entityLabel="Danh sách nhập hàng"
+        systemFields={[
+          {
+            key: "voucherDate",
+            label: "Ngày hạch toán",
+            required: true,
+            aliases: ["ngay hach toan", "ngay chung tu"]
+          },
+          {
+            key: "voucherNo",
+            label: "Số chứng từ",
+            required: true,
+            aliases: ["so chung tu", "so phieu"]
+          },
+          {
+            key: "partnerCode",
+            label: "Mã nhà cung cấp",
+            aliases: ["ma nha cung cap", "ma doi tuong"]
+          },
+          {
+            key: "partnerName",
+            label: "Tên nhà cung cấp",
+            aliases: ["ten nha cung cap", "ten doi tuong"]
+          },
+          {
+            key: "note",
+            label: "Diễn giải",
+            aliases: ["dien giai", "ghi chu"]
+          },
+          {
+            key: "totalAmount",
+            label: "Tổng tiền hàng",
+            aliases: ["tong tien hang"],
+            renderValue: (value) => formatCurrency(Number(value ?? 0))
+          },
+          {
+            key: "taxAmount",
+            label: "Tiền thuế GTGT",
+            aliases: ["tien thue gtgt", "thue gtgt"],
+            renderValue: (value) => formatCurrency(Number(value ?? 0))
+          },
+          {
+            key: "totalNetAmount",
+            label: "Tổng tiền thanh toán",
+            required: true,
+            aliases: ["tong thanh toan", "tong tien thanh toan"],
+            renderValue: (value) => formatCurrency(Number(value ?? 0))
+          },
+          {
+            key: "paymentStatus",
+            label: "TT thanh toán",
+            aliases: ["tt thanh toan", "trang thai thanh toan"]
+          }
+        ]}
+        onCancel={() => setOpenImportModal(false)}
+        onValidate={(payload) =>
+          validateImportData<PurchaseListImportMappedData>({
+            domain: "PURCHASE_LIST",
+            jsonData: payload.jsonData,
+            mappingObject: payload.mappingObject as Record<string, string>,
+            importMode: payload.importMode
+          })
+        }
+        onCommit={(payload) =>
+          commitImportData<PurchaseListImportMappedData>({
+            domain: "PURCHASE_LIST",
+            rows: payload.rows,
+            importMode: payload.importMode
+          })
+        }
+        onCompleted={async () => {
+          setOpenImportModal(false);
+          await Promise.all([vouchersQuery.refetch(), voucherDetailQuery.refetch()]);
         }}
       />
     </div>

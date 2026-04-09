@@ -1,5 +1,6 @@
 ﻿import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { FileExcelOutlined, PrinterOutlined } from "@ant-design/icons";
 import {
   Button,
   Col,
@@ -19,6 +20,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import { useEffect, useMemo, useState, type FocusEvent } from "react";
+import * as XLSX from "xlsx-js-style";
 import { AppSelect } from "./common/AppSelect";
 import { PartnerModal, type PartnerFormValues } from "./PartnerModal";
 import { createPartner, createProduct, fetchPartners, fetchProducts, updatePartner } from "../services/masterData.api";
@@ -150,6 +152,19 @@ function parseInputNumberValue(value: string | undefined): string {
 
 function handleInputNumberFocus(event: FocusEvent<HTMLInputElement>): void {
   event.target.select();
+}
+
+function sanitizeFileName(value: string): string {
+  return value.replace(/[\\/:*?"<>|]/g, "_").trim() || "Bao_gia";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function renderEditableNumberCell(
@@ -564,6 +579,324 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
     }
   ];
 
+  const buildExportRows = () => {
+    const values = form.getFieldsValue();
+    const quotationDate = values.quotationDate ? dayjs(values.quotationDate).format("DD/MM/YYYY") : dayjs().format("DD/MM/YYYY");
+    const quotationNo = String(values.quotationNo ?? "").trim();
+    const partnerName = String(values.partnerName ?? "").trim() || String(values.partnerId ?? "").trim() || "-";
+    const customerAddress = String(values.customerAddress ?? "").trim() || "-";
+    const exportRows = rows
+      .filter((row) => {
+        const hasName = Boolean(String(row.productName ?? "").trim() || String(row.skuCode ?? "").trim());
+        const hasAmount = row.quantity > 0 || row.price > 0 || row.netAmount > 0;
+        return hasName || hasAmount;
+      })
+      .map((row, index) => ({
+        stt: index + 1,
+        productName: String(row.productName ?? row.skuCode ?? "-").trim() || "-",
+        unitName: String(row.unitName ?? "").trim(),
+        quantity: Number(row.quantity) || 0,
+        unitPrice: Number(row.price) || 0,
+        discountPercent: Number(row.discountPercent) || 0,
+        unitPriceAfterDiscount: Number((row.price * (1 - row.discountPercent / 100)).toFixed(2)),
+        lineTotal: Number(row.netAmount) || 0
+      }));
+
+    return {
+      quotationDate,
+      quotationNo,
+      partnerName,
+      customerAddress,
+      exportRows
+    };
+  };
+
+  const handleDownloadExcel = () => {
+    const { quotationDate, quotationNo, partnerName, customerAddress, exportRows } = buildExportRows();
+    if (!exportRows.length) {
+      message.warning("Báo giá chưa có dữ liệu hàng hóa để tải Excel.");
+      return;
+    }
+
+    const minimumDetailRows = 3;
+    const detailRows: Array<Array<string | number>> = exportRows.map((row) => [
+      row.stt,
+      row.productName,
+      row.unitName,
+      row.quantity,
+      row.unitPrice,
+      row.discountPercent,
+      row.unitPriceAfterDiscount,
+      row.lineTotal
+    ]);
+    while (detailRows.length < minimumDetailRows) {
+      detailRows.push(["", "", "", "", "", "", "", ""]);
+    }
+
+    const rowsForSheet: Array<Array<string | number>> = [
+      ["BÁO GIÁ"],
+      [`TÊN KHÁCH HÀNG: ${partnerName}`],
+      [quotationDate, "", "", "", `ĐỊA CHỈ: ${customerAddress}`, "", "", ""],
+      ["STT", "TÊN HÀNG HÓA", "ĐVT", "S.LƯỢNG", "Đơn giá", "CK%", "Giá sau CK", "Thành tiền"],
+      ...detailRows
+    ];
+
+    const summaryRowIndex = rowsForSheet.length + 1;
+    rowsForSheet.push(["Thành tiền", "", "", "", "", "", "", totals.totalNetAmount]);
+    const signRowIndex = rowsForSheet.length + 1;
+    rowsForSheet.push(["NGƯỜI NHẬN HÀNG", "", "", "", "NGƯỜI LẬP PHIẾU", "", "", ""]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet(rowsForSheet);
+
+    const borderThin = {
+      top: { style: "thin", color: { rgb: "000000" } },
+      bottom: { style: "thin", color: { rgb: "000000" } },
+      left: { style: "thin", color: { rgb: "000000" } },
+      right: { style: "thin", color: { rgb: "000000" } }
+    };
+    const centerStyle = {
+      alignment: { horizontal: "center", vertical: "center", wrapText: true },
+      font: { name: "Times New Roman", sz: 12 },
+      border: borderThin
+    };
+    const leftStyle = {
+      alignment: { horizontal: "left", vertical: "center", wrapText: true },
+      font: { name: "Times New Roman", sz: 12 },
+      border: borderThin
+    };
+    const rightStyle = {
+      alignment: { horizontal: "right", vertical: "center", wrapText: true },
+      font: { name: "Times New Roman", sz: 12 },
+      border: borderThin
+    };
+
+    const setCellStyle = (cellAddress: string, style: Record<string, unknown>) => {
+      if (!worksheet[cellAddress]) {
+        worksheet[cellAddress] = { t: "s", v: "" };
+      }
+      (worksheet[cellAddress] as XLSX.CellObject & { s?: Record<string, unknown> }).s = style;
+    };
+
+    const setRangeStyle = (startCell: string, endCell: string, style: Record<string, unknown>) => {
+      const range = XLSX.utils.decode_range(`${startCell}:${endCell}`);
+      for (let row = range.s.r; row <= range.e.r; row += 1) {
+        for (let col = range.s.c; col <= range.e.c; col += 1) {
+          setCellStyle(XLSX.utils.encode_cell({ r: row, c: col }), style);
+        }
+      }
+    };
+
+    worksheet["!cols"] = [
+      { wch: 6 },
+      { wch: 30 },
+      { wch: 10 },
+      { wch: 11 },
+      { wch: 14 },
+      { wch: 10 },
+      { wch: 14 },
+      { wch: 16 }
+    ];
+    worksheet["!merges"] = [
+      XLSX.utils.decode_range("A1:H1"),
+      XLSX.utils.decode_range("A2:H2"),
+      XLSX.utils.decode_range("A3:D3"),
+      XLSX.utils.decode_range("E3:H3"),
+      XLSX.utils.decode_range(`A${summaryRowIndex}:G${summaryRowIndex}`),
+      XLSX.utils.decode_range(`A${signRowIndex}:D${signRowIndex}`),
+      XLSX.utils.decode_range(`E${signRowIndex}:H${signRowIndex}`)
+    ];
+
+    worksheet["!rows"] = rowsForSheet.map((_, rowIndex) => {
+      if (rowIndex === 0) {
+        return { hpx: 28 };
+      }
+      if (rowIndex === 1) {
+        return { hpx: 26 };
+      }
+      if (rowIndex === 3) {
+        return { hpx: 30 };
+      }
+      return { hpx: 24 };
+    });
+
+    setRangeStyle(`A1`, `H${signRowIndex}`, {
+      font: { name: "Times New Roman", sz: 12 },
+      border: borderThin
+    });
+
+    setRangeStyle("A1", "H1", {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 16, bold: true }
+    });
+    setRangeStyle("A2", "H2", {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 14, bold: true, color: { rgb: "C00000" } }
+    });
+    setRangeStyle("A3", "D3", {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 12, bold: true }
+    });
+    setRangeStyle("E3", "H3", {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 12, bold: true }
+    });
+
+    setRangeStyle("A4", "H4", {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 12, bold: true }
+    });
+    setRangeStyle("G4", "G4", {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 12, bold: true },
+      fill: { patternType: "solid", fgColor: { rgb: "FFF200" } }
+    });
+
+    const dataStart = 5;
+    const dataEnd = dataStart + detailRows.length - 1;
+    for (let rowIndex = dataStart; rowIndex <= dataEnd; rowIndex += 1) {
+      setCellStyle(`A${rowIndex}`, centerStyle);
+      setCellStyle(`B${rowIndex}`, leftStyle);
+      setCellStyle(`C${rowIndex}`, centerStyle);
+      setCellStyle(`D${rowIndex}`, rightStyle);
+      setCellStyle(`E${rowIndex}`, rightStyle);
+      setCellStyle(`F${rowIndex}`, rightStyle);
+      setCellStyle(`G${rowIndex}`, {
+        ...rightStyle,
+        fill: { patternType: "solid", fgColor: { rgb: "FFF200" } }
+      });
+      setCellStyle(`H${rowIndex}`, rightStyle);
+
+      if (worksheet[`D${rowIndex}`]) {
+        worksheet[`D${rowIndex}`].z = "#,##0.0";
+      }
+      if (worksheet[`E${rowIndex}`]) {
+        worksheet[`E${rowIndex}`].z = "#,##0";
+      }
+      if (worksheet[`F${rowIndex}`]) {
+        worksheet[`F${rowIndex}`].z = "#,##0.00\\%";
+      }
+      if (worksheet[`G${rowIndex}`]) {
+        worksheet[`G${rowIndex}`].z = "#,##0";
+      }
+      if (worksheet[`H${rowIndex}`]) {
+        worksheet[`H${rowIndex}`].z = "#,##0";
+      }
+    }
+
+    setRangeStyle(`A${summaryRowIndex}`, `H${summaryRowIndex}`, {
+      ...centerStyle,
+      fill: { patternType: "solid", fgColor: { rgb: "E2EFDA" } }
+    });
+    setRangeStyle(`A${summaryRowIndex}`, `G${summaryRowIndex}`, {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 13, bold: true, color: { rgb: "C00000" } },
+      fill: { patternType: "solid", fgColor: { rgb: "E2EFDA" } }
+    });
+    setCellStyle(`H${summaryRowIndex}`, {
+      ...rightStyle,
+      font: { name: "Times New Roman", sz: 13, bold: true },
+      fill: { patternType: "solid", fgColor: { rgb: "E2EFDA" } }
+    });
+    if (worksheet[`H${summaryRowIndex}`]) {
+      worksheet[`H${summaryRowIndex}`].z = "#,##0";
+    }
+
+    setRangeStyle(`A${signRowIndex}`, `H${signRowIndex}`, {
+      ...centerStyle,
+      font: { name: "Times New Roman", sz: 13, bold: true },
+      fill: { patternType: "solid", fgColor: { rgb: "E2EFDA" } }
+    });
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "BaoGia");
+    const fileName = sanitizeFileName(`Bao_gia_${quotationNo || dayjs().format("YYYYMMDD_HHmmss")}`);
+    XLSX.writeFile(workbook, `${fileName}.xlsx`);
+  };
+
+  const handlePrintQuotation = () => {
+    const { quotationDate, partnerName, customerAddress, exportRows } = buildExportRows();
+    if (!exportRows.length) {
+      message.warning("Báo giá chưa có dữ liệu hàng hóa để in.");
+      return;
+    }
+
+    const popup = window.open("", "_blank", "width=1100,height=760");
+    if (!popup) {
+      message.error("Trình duyệt đang chặn cửa sổ in.");
+      return;
+    }
+
+    const bodyRows = exportRows
+      .map(
+        (row) => `
+          <tr>
+            <td>${row.stt}</td>
+            <td class="text-left">${escapeHtml(row.productName)}</td>
+            <td>${escapeHtml(row.unitName || "-")}</td>
+            <td class="text-right">${formatNumber(row.quantity)}</td>
+            <td class="text-right">${quotationUnitPriceFormatter.format(row.unitPrice)}</td>
+            <td class="text-right">${formatNumber(row.discountPercent)}</td>
+            <td class="text-right">${quotationUnitPriceFormatter.format(row.unitPriceAfterDiscount)}</td>
+            <td class="text-right">${quotationUnitPriceFormatter.format(row.lineTotal)}</td>
+          </tr>`
+      )
+      .join("");
+
+    popup.document.write(`<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>Báo giá</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 20px; color: #111827; }
+      .title { text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+      .meta { font-size: 14px; margin-bottom: 4px; }
+      .table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+      .table th, .table td { border: 1px solid #111827; padding: 6px 8px; font-size: 14px; }
+      .table th { background: #f3f4f6; text-align: center; }
+      .text-left { text-align: left; }
+      .text-right { text-align: right; }
+      .summary { margin-top: 8px; text-align: right; font-size: 16px; font-weight: 700; }
+      .signatures { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+      .signature-title { font-weight: 700; text-align: center; margin-bottom: 80px; }
+    </style>
+  </head>
+  <body>
+    <div class="title">BÁO GIÁ</div>
+    <div class="meta"><strong>TÊN KHÁCH HÀNG:</strong> ${escapeHtml(partnerName)}</div>
+    <div class="meta"><strong>NGÀY:</strong> ${escapeHtml(quotationDate)}</div>
+    <div class="meta"><strong>ĐỊA CHỈ:</strong> ${escapeHtml(customerAddress)}</div>
+
+    <table class="table">
+      <thead>
+        <tr>
+          <th>STT</th>
+          <th>TÊN HÀNG HÓA</th>
+          <th>ĐVT</th>
+          <th>S.LƯỢNG</th>
+          <th>Đơn giá</th>
+          <th>CK%</th>
+          <th>Giá sau CK</th>
+          <th>Thành tiền</th>
+        </tr>
+      </thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+
+    <div class="summary">Thành tiền: ${formatCurrency(totals.totalNetAmount)}</div>
+    <div class="signatures">
+      <div><div class="signature-title">NGƯỜI NHẬN HÀNG</div></div>
+      <div><div class="signature-title">NGƯỜI LẬP PHIẾU</div></div>
+    </div>
+  </body>
+</html>`);
+    popup.document.close();
+    popup.focus();
+    window.setTimeout(() => {
+      popup.print();
+    }, 150);
+  };
+
   const buildPayload = () => {
     const values = form.getFieldsValue();
     const items = rows
@@ -657,6 +990,20 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
               </Button>
             </Space>
             <Space>
+              <Button
+                className="sales-voucher-footer-button sales-voucher-footer-button-secondary"
+                icon={<PrinterOutlined />}
+                onClick={handlePrintQuotation}
+              >
+                In
+              </Button>
+              <Button
+                className="sales-voucher-footer-button sales-voucher-footer-button-secondary"
+                icon={<FileExcelOutlined />}
+                onClick={handleDownloadExcel}
+              >
+                Tải Excel
+              </Button>
               <Button
                 className="sales-voucher-footer-button sales-voucher-footer-button-primary"
                 loading={createMutation.isPending || updateMutation.isPending}

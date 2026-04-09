@@ -468,11 +468,13 @@ export class MasterDataController {
   static async exportStockCardExcel(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const query = stockCardQuerySchema.parse(req.query);
+      const startDate = parseDateInput(query.startDate, false);
+      const endDate = parseDateInput(query.endDate, true);
 
       const stockCard = await service.getStockCard({
         productId: query.productId,
-        startDate: parseDateInput(query.startDate, false),
-        endDate: parseDateInput(query.endDate, true)
+        startDate,
+        endDate
       });
       const company = await service.getCompanyHeader();
 
@@ -508,6 +510,23 @@ export class MasterDataController {
       worksheet.mergeCells("D6:G6");
       worksheet.getCell("D6").value = `Mã số: ${stockCard.product.skuCode}`;
       worksheet.getCell("D6").alignment = { horizontal: "left", vertical: "middle" };
+
+      const fallbackStartDate = stockCard.items.find((item) => item.voucherDate)?.voucherDate ?? stockCard.items[0]?.createdAt;
+      const fallbackEndDate = stockCard.items.length
+        ? stockCard.items[stockCard.items.length - 1]?.voucherDate ?? stockCard.items[stockCard.items.length - 1]?.createdAt
+        : undefined;
+      const periodStart = startDate ?? fallbackStartDate;
+      const periodEnd = endDate ?? fallbackEndDate;
+      worksheet.getCell("A5").value = periodStart && periodEnd
+        ? `Từ ngày ${formatDate(periodStart)} đến ngày ${formatDate(periodEnd)}`
+        : "Từ đầu kỳ đến hiện tại";
+      worksheet.getCell("A5").font = { bold: true, italic: true, size: 12 };
+      worksheet.getCell("A5").alignment = { horizontal: "center", vertical: "middle" };
+
+      worksheet.mergeCells("A7:G7");
+      worksheet.getCell("A7").value = `Tên nhãn hiệu, quy cách vật tư: ${stockCard.product.name}`;
+      worksheet.getCell("A7").font = { bold: true, italic: true };
+      worksheet.getCell("A7").alignment = { horizontal: "left", vertical: "middle" };
 
       worksheet.mergeCells("A8:A9");
       worksheet.getCell("A8").value = "Ngày tháng";

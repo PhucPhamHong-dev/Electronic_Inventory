@@ -1,0 +1,2 @@
+ALTER TYPE "public"."report_type"
+ADD VALUE IF NOT EXISTS 'TONG_HOP_CONG_NO_NCC';

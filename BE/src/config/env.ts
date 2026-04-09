@@ -17,7 +17,9 @@ const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default("12h"),
   PDF_OUTPUT_DIR: z.string().default("tmp/pdfs"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
-  SLOW_QUERY_THRESHOLD_MS: z.coerce.number().int().min(1).default(180)
+  SLOW_QUERY_THRESHOLD_MS: z.coerce.number().int().min(1).default(180),
+  IMPORT_TX_TIMEOUT_MS: z.coerce.number().int().min(1000).default(60000),
+  IMPORT_TX_MAX_WAIT_MS: z.coerce.number().int().min(1000).default(10000)
 });
 
 const parsed = envSchema.safeParse(process.env);

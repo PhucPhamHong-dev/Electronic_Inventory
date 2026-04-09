@@ -1,11 +1,13 @@
-import { DownOutlined, PlusOutlined } from "@ant-design/icons";
+import { DownloadOutlined, DownOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, DatePicker, Dropdown, Input, Space, Table, Tag, Typography, message } from "antd";
 import type { MenuProps, TableColumnsType } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx-js-style";
 import { QuotationDrawer } from "../components/QuotationDrawer";
 import { SalesDebtTab } from "../components/SalesDebtTab";
+import { SalesReportsTab } from "../components/SalesReportsTab";
 import { SalesReturnDrawer } from "../components/SalesReturnDrawer";
 import { SalesVoucherDrawer } from "../components/SalesVoucherDrawer";
 import { PartnerManagementPage } from "./categories/PartnerManagement";
@@ -732,6 +734,120 @@ export function SalesDashboardPage() {
 
   const activeTabLabel = workflowTabs.find((item) => item.key === activeWorkflowTab)?.label ?? "";
 
+  const downloadWorkbook = (workbook: XLSX.WorkBook, fileName: string) => {
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName.replace(/[\\/:*?"<>|]/g, "_");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const fetchAllSalesVouchersForExport = async (): Promise<VoucherHistoryItem[]> => {
+    const pageSizeForExport = 200;
+    let currentPage = 1;
+    let total = 0;
+    const allItems: VoucherHistoryItem[] = [];
+
+    do {
+      const response = await fetchVouchers({
+        page: currentPage,
+        pageSize: pageSizeForExport,
+        type: "SALES",
+        search: voucherSearch || undefined,
+        startDate: toDateString(voucherRange?.[0] ?? getTodayRange()[0]),
+        endDate: toDateString(voucherRange?.[1] ?? getTodayRange()[1])
+      });
+      allItems.push(...response.items);
+      total = response.total;
+      if (!response.items.length) {
+        break;
+      }
+      currentPage += 1;
+    } while (allItems.length < total);
+
+    return allItems;
+  };
+
+  const handleExportSalesListExcel = async (): Promise<void> => {
+    try {
+      const items = await fetchAllSalesVouchersForExport();
+      if (!items.length) {
+        message.warning("Không có dữ liệu bán hàng để xuất Excel.");
+        return;
+      }
+
+      const fromText = voucherRange?.[0]?.format("DD/MM/YYYY") ?? dayjs().startOf("day").format("DD/MM/YYYY");
+      const toText = voucherRange?.[1]?.format("DD/MM/YYYY") ?? dayjs().endOf("day").format("DD/MM/YYYY");
+      const sheetData: Array<Array<string | number>> = [
+        ["DANH SÁCH BÁN HÀNG"],
+        [`Từ ngày ${fromText} đến ngày ${toText}`],
+        [],
+        ["Ngày chứng từ", "Số phiếu", "Khách hàng", "Tổng tiền hàng", "Tổng tiền thuế", "Tổng thanh toán", "Thanh toán", "PTTT", "Diễn giải"],
+        ...items.map((item) => [
+          dayjs(item.voucherDate).format("DD/MM/YYYY"),
+          item.voucherNo ?? item.id.slice(0, 8),
+          item.partnerName ?? "",
+          item.totalAmount,
+          item.totalTaxAmount,
+          item.totalNetAmount,
+          paymentStatusMeta[item.paymentStatus].label,
+          mapPaymentMethodLabel(item.paymentMethod),
+          item.note ?? ""
+        ])
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      ws["!merges"] = [XLSX.utils.decode_range("A1:I1"), XLSX.utils.decode_range("A2:I2")];
+      ws["!cols"] = [
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 36 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 40 }
+      ];
+
+      const headerRow = 4;
+      for (let col = 0; col < 9; col += 1) {
+        const headerCell = ws[XLSX.utils.encode_cell({ r: headerRow - 1, c: col })] as (XLSX.CellObject & { s?: Record<string, unknown> }) | undefined;
+        if (headerCell) {
+          headerCell.s = {
+            font: { bold: true },
+            alignment: { horizontal: "center", vertical: "center" },
+            fill: { patternType: "solid", fgColor: { rgb: "D9E1F2" } }
+          };
+        }
+      }
+
+      const moneyCols = new Set([3, 4, 5]);
+      for (let row = headerRow + 1; row <= headerRow + items.length; row += 1) {
+        for (const col of moneyCols) {
+          const cell = ws[XLSX.utils.encode_cell({ r: row - 1, c: col })] as (XLSX.CellObject & { s?: Record<string, unknown> }) | undefined;
+          if (cell) {
+            cell.s = { alignment: { horizontal: "right" }, numFmt: "#,##0" };
+          }
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "DanhSachBanHang");
+      downloadWorkbook(wb, `Danh_sach_ban_hang_${dayjs().format("YYYYMMDD-HHmmss")}.xlsx`);
+      message.success("Đã xuất Excel danh sách bán hàng.");
+    } catch (error) {
+      message.error((error as Error).message || "Xuất Excel thất bại.");
+    }
+  };
+
   return (
     <div>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
@@ -783,6 +899,9 @@ export function SalesDashboardPage() {
                     setVoucherRange([nextRange[0].startOf("day"), nextRange[1].endOf("day")]);
                   }}
                 />
+                <Button icon={<DownloadOutlined />} onClick={() => void handleExportSalesListExcel()}>
+                  Xuất Excel
+                </Button>
               </Space>
               <Button
                 type="primary"
@@ -1055,6 +1174,8 @@ export function SalesDashboardPage() {
         <SalesDebtTab />
       ) : activeWorkflowTab === "CUSTOMERS" ? (
         <PartnerManagementPage />
+      ) : activeWorkflowTab === "REPORTS" ? (
+        <SalesReportsTab />
       ) : (
         <div className="sales-workflow-placeholder">
           <Typography.Text>{`Chức năng ${activeTabLabel} đang được phát triển, vui lòng quay lại sau`}</Typography.Text>

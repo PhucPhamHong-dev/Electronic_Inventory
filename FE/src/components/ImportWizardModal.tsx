@@ -55,6 +55,12 @@ interface WorkbookExtractResult {
   rows: RawImportRecord[];
   sheetNames: string[];
   activeSheetName: string;
+  headerRowNumber: number;
+}
+
+interface ValidationErrorInsight {
+  message: string;
+  count: number;
 }
 
 function normalizeText(value: string): string {
@@ -99,7 +105,51 @@ function scoreHeader(fieldLabel: string, aliases: string[], header: string): num
   return score;
 }
 
-async function extractWorkbookData(file: File, preferredSheetName?: string): Promise<WorkbookExtractResult> {
+async function extractWorkbookData(
+  file: File,
+  preferredSheetName?: string,
+  preferredHeaderRowNumber?: number
+): Promise<WorkbookExtractResult> {
+  const detectHeaderRow = (matrix: Array<Array<string | number | boolean | null>>): number => {
+    if (!matrix.length) {
+      return 0;
+    }
+
+    let bestIndex = 0;
+    let bestScore = -1;
+    const maxScanRows = Math.min(matrix.length, 25);
+
+    for (let rowIndex = 0; rowIndex < maxScanRows; rowIndex += 1) {
+      const row = matrix[rowIndex] ?? [];
+      const normalized = row.map((cell) => String(cell ?? "").trim()).filter((cell) => cell.length > 0);
+      if (normalized.length < 2) {
+        continue;
+      }
+
+      const textualCount = normalized.filter((cell) => /[A-Za-zÀ-ỹ]/u.test(cell)).length;
+      const score = normalized.length * 5 + textualCount * 3 - rowIndex * 0.1;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = rowIndex;
+      }
+    }
+
+    return bestIndex;
+  };
+
+  const buildUniqueHeaders = (rawHeaders: Array<string | number | boolean | null>): string[] => {
+    const seen = new Map<string, number>();
+    return rawHeaders.map((value, index) => {
+      const baseHeader = String(value ?? "").trim() || `Column_${index + 1}`;
+      const current = seen.get(baseHeader) ?? 0;
+      seen.set(baseHeader, current + 1);
+      if (current === 0) {
+        return baseHeader;
+      }
+      return `${baseHeader}_${current + 1}`;
+    });
+  };
+
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
   const fallbackSheetName = workbook.SheetNames[0];
@@ -108,20 +158,32 @@ async function extractWorkbookData(file: File, preferredSheetName?: string): Pro
     : fallbackSheetName;
 
   if (!activeSheetName) {
-    return { headers: [], rows: [], sheetNames: [], activeSheetName: "" };
+    return { headers: [], rows: [], sheetNames: [], activeSheetName: "", headerRowNumber: 1 };
   }
 
   const sheet = workbook.Sheets[activeSheetName];
   const matrix = XLSX.utils.sheet_to_json<Array<string | number | boolean | null>>(sheet, { header: 1, defval: null });
-  const headerRow = matrix[0] ?? [];
-  const headers = headerRow.map((value) => String(value ?? "").trim()).filter((value) => Boolean(value));
-  const rows = XLSX.utils.sheet_to_json<RawImportRecord>(sheet, { defval: null });
+  const safeHeaderRowIndex = preferredHeaderRowNumber && Number.isFinite(preferredHeaderRowNumber)
+    ? Math.max(0, Math.min(matrix.length - 1, preferredHeaderRowNumber - 1))
+    : detectHeaderRow(matrix);
+  const headers = buildUniqueHeaders(matrix[safeHeaderRowIndex] ?? []);
+  const rows: RawImportRecord[] = matrix
+    .slice(safeHeaderRowIndex + 1)
+    .map((cells) => {
+      const record: RawImportRecord = {};
+      headers.forEach((header, index) => {
+        record[header] = cells[index] ?? null;
+      });
+      return record;
+    })
+    .filter((row) => Object.values(row).some((value) => value !== null && String(value).trim() !== ""));
 
   return {
     headers,
     rows,
     sheetNames: workbook.SheetNames,
-    activeSheetName
+    activeSheetName,
+    headerRowNumber: safeHeaderRowIndex + 1
   };
 }
 
@@ -130,6 +192,13 @@ function downloadTemplate(fileName: string, headers: string[]): void {
   const sheet = XLSX.utils.aoa_to_sheet([headers]);
   XLSX.utils.book_append_sheet(workbook, sheet, "Mẫu cơ bản");
   XLSX.writeFile(workbook, fileName);
+}
+
+function splitErrorNote(errorNote: string): string[] {
+  return errorNote
+    .split(";")
+    .map((item) => item.trim())
+    .filter((item) => Boolean(item));
 }
 
 export function ImportWizardModal<TMapped extends object>(props: ImportWizardModalProps<TMapped>) {
@@ -141,6 +210,7 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
   const [fileData, setFileData] = useState<RawImportRecord[]>([]);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [activeSheetName, setActiveSheetName] = useState("");
+  const [headerRowNumber, setHeaderRowNumber] = useState(1);
   const [columnMapping, setColumnMapping] = useState<Partial<Record<Extract<keyof TMapped, string>, string>>>({});
   const [validationResults, setValidationResults] = useState<ImportValidationResponse<TMapped> | null>(null);
   const [importMode, setImportMode] = useState<ImportMode>("CREATE_ONLY");
@@ -159,6 +229,7 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
       setFileData([]);
       setSheetNames([]);
       setActiveSheetName("");
+      setHeaderRowNumber(1);
       setColumnMapping({});
       setValidationResults(null);
       setImportMode("CREATE_ONLY");
@@ -193,6 +264,66 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
     }
     return rows;
   }, [statusFilter, validationResults]);
+
+  const validationGuidance = useMemo(() => {
+    const invalidRows = (validationResults?.rows ?? []).filter((row) => row.status === "invalid");
+    const errorCounter = new Map<string, number>();
+    let rowsWithDuplicate = 0;
+    let rowsWithMissingForUpdate = 0;
+    let rowsWithPaymentStatusError = 0;
+    let rowsWithDateError = 0;
+
+    for (const row of invalidRows) {
+      const errorMessages = splitErrorNote(row.errorNote);
+      const uniqueMessages = new Set(errorMessages.length > 0 ? errorMessages : ["Dữ liệu không hợp lệ"]);
+
+      for (const messageText of uniqueMessages) {
+        errorCounter.set(messageText, (errorCounter.get(messageText) ?? 0) + 1);
+
+        const normalizedMessage = normalizeText(messageText);
+        if (normalizedMessage.includes("da ton tai")) {
+          rowsWithDuplicate += 1;
+        }
+        if (normalizedMessage.includes("chua ton tai de cap nhat")) {
+          rowsWithMissingForUpdate += 1;
+        }
+        if (normalizedMessage.includes("trang thai thanh toan")) {
+          rowsWithPaymentStatusError += 1;
+        }
+        if (normalizedMessage.includes("ngay") && normalizedMessage.includes("khong hop le")) {
+          rowsWithDateError += 1;
+        }
+      }
+    }
+
+    const topErrors: ValidationErrorInsight[] = [...errorCounter.entries()]
+      .map(([message, count]) => ({ message, count }))
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 6);
+
+    const suggestedModes: ImportMode[] = [];
+    let modeHint = "";
+
+    if (importMode === "CREATE_ONLY" && rowsWithDuplicate > 0) {
+      modeHint = "Nhiều dòng báo “đã tồn tại”. Bạn nên chuyển sang Ghi đè hoặc Cập nhật rồi kiểm tra lại.";
+      suggestedModes.push("UPSERT", "UPDATE_ONLY");
+    }
+
+    if (importMode === "UPDATE_ONLY" && rowsWithMissingForUpdate > 0) {
+      modeHint = "Nhiều dòng báo “chưa tồn tại để cập nhật”. Bạn nên chuyển sang Ghi đè hoặc Thêm mới rồi kiểm tra lại.";
+      suggestedModes.push("UPSERT", "CREATE_ONLY");
+    }
+
+    const uniqueSuggestedModes = Array.from(new Set(suggestedModes));
+
+    return {
+      topErrors,
+      modeHint,
+      suggestedModes: uniqueSuggestedModes,
+      rowsWithPaymentStatusError,
+      rowsWithDateError
+    };
+  }, [importMode, validationResults]);
 
   const mappingColumns = useMemo<ColumnsType<ImportSystemField<TMapped>>>(() => [
     {
@@ -275,7 +406,19 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
         dataIndex: "errorNote",
         key: "errorNote",
         width: 260,
-        render: (value: string) => value || ""
+        render: (value: string) => {
+          const errorMessages = splitErrorNote(value);
+          if (errorMessages.length === 0) {
+            return "";
+          }
+          return (
+            <div className="misa-import__error-note">
+              {errorMessages.map((item, index) => (
+                <div key={`${item}-${index}`}>{item}</div>
+              ))}
+            </div>
+          );
+        }
       },
       ...mappedColumns
     ];
@@ -307,14 +450,15 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
     setColumnMapping(nextMapping);
   };
 
-  const loadFile = async (file: File, preferredSheetName?: string) => {
-    const parsed = await extractWorkbookData(file, preferredSheetName);
+  const loadFile = async (file: File, preferredSheetName?: string, preferredHeaderRowNumber?: number) => {
+    const parsed = await extractWorkbookData(file, preferredSheetName, preferredHeaderRowNumber);
     setSelectedFile(file);
     setSelectedFileName(file.name);
     setExcelHeaders(parsed.headers);
     setFileData(parsed.rows);
     setSheetNames(parsed.sheetNames);
     setActiveSheetName(parsed.activeSheetName);
+    setHeaderRowNumber(parsed.headerRowNumber);
     setValidationResults(null);
     setCommitResult(null);
     applyAutoMapping(parsed.headers);
@@ -469,13 +613,25 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
                         if (!selectedFile) {
                           return;
                         }
-                        void loadFile(selectedFile, value);
+                        void loadFile(selectedFile, value, headerRowNumber);
                       }}
                     />
                   </div>
                   <div>
                     <div className="misa-import__field-label">Dòng tiêu đề là dòng số</div>
-                    <InputNumber value={1} min={1} style={{ width: "100%" }} disabled />
+                    <InputNumber
+                      value={headerRowNumber}
+                      min={1}
+                      style={{ width: "100%" }}
+                      disabled={!selectedFile}
+                      onChange={(value) => {
+                        const nextValue = typeof value === "number" ? value : Number(value);
+                        if (!selectedFile || !Number.isFinite(nextValue) || nextValue <= 0) {
+                          return;
+                        }
+                        void loadFile(selectedFile, activeSheetName, nextValue);
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -556,6 +712,53 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
                   />
                 </div>
               </div>
+
+              {(validationResults?.summary.invalid ?? 0) > 0 ? (
+                <div className="misa-import__validation-guide">
+                  <div className="misa-import__validation-guide-title">Lý do không hợp lệ và cách xử lý</div>
+                  {validationGuidance.modeHint ? (
+                    <div className="misa-import__validation-guide-mode">{validationGuidance.modeHint}</div>
+                  ) : null}
+
+                  {validationGuidance.suggestedModes.length > 0 ? (
+                    <Space wrap>
+                      {validationGuidance.suggestedModes.map((modeValue) => {
+                        const option = IMPORT_MODE_OPTIONS.find((optionItem) => optionItem.value === modeValue);
+                        return (
+                          <Button key={modeValue} size="small" onClick={() => setImportMode(modeValue)}>
+                            Chuyển sang {option?.label ?? modeValue}
+                          </Button>
+                        );
+                      })}
+                      <Button size="small" type="primary" onClick={() => void runValidation()} loading={busy}>
+                        Kiểm tra lại
+                      </Button>
+                    </Space>
+                  ) : null}
+
+                  {validationGuidance.topErrors.length > 0 ? (
+                    <div className="misa-import__validation-guide-errors">
+                      {validationGuidance.topErrors.map((errorItem) => (
+                        <div key={errorItem.message} className="misa-import__validation-guide-error-item">
+                          <span>{errorItem.message}</span>
+                          <Tag color="red">{errorItem.count} dòng</Tag>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {validationGuidance.rowsWithPaymentStatusError > 0 ? (
+                    <Typography.Text type="secondary">
+                      Trạng thái thanh toán chỉ nhận: <strong>UNPAID</strong>, <strong>PARTIAL</strong>, <strong>PAID</strong>.
+                    </Typography.Text>
+                  ) : null}
+                  {validationGuidance.rowsWithDateError > 0 ? (
+                    <Typography.Text type="secondary">
+                      Các cột ngày nên dùng định dạng dễ nhận diện như <strong>YYYY-MM-DD</strong> hoặc <strong>DD/MM/YYYY</strong>.
+                    </Typography.Text>
+                  ) : null}
+                </div>
+              ) : null}
 
               <Table
                 size="small"
