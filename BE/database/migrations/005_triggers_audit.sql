@@ -4,12 +4,12 @@ CREATE OR REPLACE FUNCTION assign_voucher_no()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
-BEGIN
-  IF NEW.voucher_no IS NULL OR NEW.voucher_no = '' THEN
-    NEW.voucher_no = generate_voucher_no(NEW.type, NEW.voucher_date);
-  END IF;
-  RETURN NEW;
-END;
+  BEGIN
+    IF NEW.voucher_no IS NULL OR NEW.voucher_no = '' THEN
+    NEW.voucher_no = generate_voucher_no(NEW.type, NEW.voucher_date, NEW.payment_method);
+    END IF;
+    RETURN NEW;
+  END;
 $$;
 
 CREATE OR REPLACE FUNCTION audit_vouchers_changes()

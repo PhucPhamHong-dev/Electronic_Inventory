@@ -1582,19 +1582,22 @@ export class VoucherService {
 
           let linkedReceiptVoucherId: string | undefined;
           let linkedCounterVoucherId: string | undefined;
-          if (
-            input.voucherType === VoucherType.SALES &&
-            (input.payload as CreateSalesVoucherRequest).isPaidImmediately === true
-          ) {
-            const receiptVoucher = await tx.voucher.create({
-              data: {
-                type: VoucherType.RECEIPT,
-                status: VoucherStatus.BOOKED,
-                paymentStatus: PaymentStatus.PAID,
-                partnerId: patchedVoucher.partnerId,
-                voucherDate: this.parseDate(input.payload.voucherDate),
-                note: "Auto receipt from immediate payment",
-                totalAmount: this.decimal(applied.totals.totalNetAmount, 4),
+            if (
+              input.voucherType === VoucherType.SALES &&
+              (input.payload as CreateSalesVoucherRequest).isPaidImmediately === true
+            ) {
+              const immediatePaymentMethod =
+                (input.payload as CreateSalesVoucherRequest).paymentMethod ?? input.options?.paymentMethod ?? null;
+              const receiptVoucher = await tx.voucher.create({
+                data: {
+                  type: VoucherType.RECEIPT,
+                  status: VoucherStatus.BOOKED,
+                  paymentStatus: PaymentStatus.PAID,
+                  paymentMethod: immediatePaymentMethod,
+                  partnerId: patchedVoucher.partnerId,
+                  voucherDate: this.parseDate(input.payload.voucherDate),
+                  note: "Auto receipt from immediate payment",
+                  totalAmount: this.decimal(applied.totals.totalNetAmount, 4),
                 totalDiscount: this.decimal(0, 4),
                 totalTaxAmount: this.decimal(0, 4),
                 totalNetAmount: this.decimal(applied.totals.totalNetAmount, 4),

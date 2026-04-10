@@ -68,7 +68,11 @@ BEGIN
   END IF;
 END $$;
 
-CREATE OR REPLACE FUNCTION generate_voucher_no(p_type voucher_type, p_date DATE DEFAULT CURRENT_DATE)
+CREATE OR REPLACE FUNCTION generate_voucher_no(
+  p_type voucher_type,
+  p_date DATE DEFAULT CURRENT_DATE,
+  p_payment_method payment_method DEFAULT NULL
+)
 RETURNS TEXT
 LANGUAGE plpgsql
 AS $$
@@ -77,12 +81,13 @@ DECLARE
   v_prefix TEXT;
   v_serial INTEGER;
 BEGIN
-  v_prefix := CASE p_type
-    WHEN 'PURCHASE' THEN 'NK'
-    WHEN 'SALES' THEN 'XK'
-    WHEN 'CONVERSION' THEN 'XL'
-    WHEN 'RECEIPT' THEN 'PT'
-    WHEN 'PAYMENT' THEN 'PC'
+  v_prefix := CASE
+    WHEN p_type = 'RECEIPT' AND p_payment_method = 'TRANSFER' THEN 'NTTK'
+    WHEN p_type = 'PURCHASE' THEN 'NK'
+    WHEN p_type = 'SALES' THEN 'XK'
+    WHEN p_type = 'CONVERSION' THEN 'XL'
+    WHEN p_type = 'RECEIPT' THEN 'PT'
+    WHEN p_type = 'PAYMENT' THEN 'PC'
   END;
 
   INSERT INTO voucher_number_counters (voucher_type, fiscal_year, last_number)

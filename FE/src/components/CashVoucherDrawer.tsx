@@ -18,7 +18,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPartner, fetchPartners, updatePartner } from "../services/masterData.api";
 import { createCashVoucher, downloadVoucherPdf, fetchUnpaidInvoices, fetchVoucherById } from "../services/voucher.api";
 import type {
@@ -716,9 +716,67 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
       ...prev,
       isExpenseInvoicePaymentFlow
         ? createExpenseDirectEntryRow(String(form.getFieldValue("partnerName") ?? ""))
-        : createDirectEntryRow(voucherType, paymentReason, String(form.getFieldValue("partnerName") ?? ""))
+      : createDirectEntryRow(voucherType, paymentReason, String(form.getFieldValue("partnerName") ?? ""))
     ]);
   };
+
+  const directEditableKeys = ["description", "amount"] as const;
+  type DirectEditableKey = (typeof directEditableKeys)[number];
+
+  const buildDirectCellId = (rowKey: string, columnKey: DirectEditableKey) => `cash-direct-${rowKey}-${columnKey}`;
+
+  const focusDirectCellByKey = (rowKey: string, columnKey: DirectEditableKey) => {
+    const target = document.getElementById(buildDirectCellId(rowKey, columnKey)) as HTMLInputElement | null;
+    if (target) {
+      target.focus();
+      target.select?.();
+    }
+  };
+
+  const addDirectRowAndFocus = (columnKey: DirectEditableKey) => {
+    const newRow = isExpenseInvoicePaymentFlow
+      ? createExpenseDirectEntryRow(String(form.getFieldValue("partnerName") ?? ""))
+      : createDirectEntryRow(voucherType, paymentReason, String(form.getFieldValue("partnerName") ?? ""));
+    setDirectRows((prev) => [...prev, newRow]);
+    requestAnimationFrame(() => focusDirectCellByKey(newRow.key, columnKey));
+  };
+
+  const handleDirectCellKeyDown =
+    (rowIndex: number, columnKey: DirectEditableKey) => (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        const prevIndex = rowIndex - 1;
+        if (prevIndex >= 0 && directRows[prevIndex]) {
+          focusDirectCellByKey(directRows[prevIndex].key, columnKey);
+        }
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        const nextIndex = rowIndex + 1;
+        if (nextIndex < directRows.length && directRows[nextIndex]) {
+          focusDirectCellByKey(directRows[nextIndex].key, columnKey);
+        } else {
+          addDirectRowAndFocus(columnKey);
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        const currentIndex = directEditableKeys.indexOf(columnKey);
+        if (currentIndex > 0) {
+          focusDirectCellByKey(directRows[rowIndex].key, directEditableKeys[currentIndex - 1]);
+        }
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        const currentIndex = directEditableKeys.indexOf(columnKey);
+        if (currentIndex >= 0 && currentIndex < directEditableKeys.length - 1) {
+          focusDirectCellByKey(directRows[rowIndex].key, directEditableKeys[currentIndex + 1]);
+        }
+      }
+    };
 
   const clearDirectRows = () => {
     setDirectRows([
@@ -866,32 +924,39 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
         align: "center",
         render: (_value, _record, index) => index + 1
       },
-      {
-        title: "Diễn giải",
-        dataIndex: "description",
-        key: "description",
-        render: (value: string, record) => (
-          <Input value={value} onChange={(event) => updateDirectRow(record.key, { description: event.target.value })} />
-        )
-      },
-      {
-        title: "Số tiền",
-        dataIndex: "amount",
-        key: "amount",
-        width: 180,
-        align: "right",
-        render: (value: number, record) => (
-          <InputNumber
-            value={value}
-            min={0}
-            controls={false}
-            style={{ width: "100%" }}
-            formatter={formatAmountInput}
-            parser={parseAmountInput}
-            onChange={(nextValue) => updateDirectRow(record.key, { amount: Number(nextValue ?? 0) })}
-          />
-        )
-      }
+        {
+          title: "Diễn giải",
+          dataIndex: "description",
+          key: "description",
+          render: (value: string, record, rowIndex) => (
+            <Input
+              id={buildDirectCellId(record.key, "description")}
+              value={value}
+              onKeyDown={handleDirectCellKeyDown(rowIndex, "description")}
+              onChange={(event) => updateDirectRow(record.key, { description: event.target.value })}
+            />
+          )
+        },
+        {
+          title: "Số tiền",
+          dataIndex: "amount",
+          key: "amount",
+          width: 180,
+          align: "right",
+          render: (value: number, record, rowIndex) => (
+            <InputNumber
+              id={buildDirectCellId(record.key, "amount")}
+              value={value}
+              min={0}
+              controls={false}
+              style={{ width: "100%" }}
+              formatter={formatAmountInput}
+              parser={parseAmountInput}
+              onKeyDown={handleDirectCellKeyDown(rowIndex, "amount")}
+              onChange={(nextValue) => updateDirectRow(record.key, { amount: Number(nextValue ?? 0) })}
+            />
+          )
+        }
     ];
 
     if (isObjectStyleFlow) {
@@ -948,6 +1013,70 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
     });
   };
 
+  const expenseEditableKeys = [
+    "taxDescription",
+    "vatRate",
+    "vatAmount",
+    "vatAccount",
+    "invoiceDate",
+    "invoiceNo",
+    "purchaseGroup"
+  ] as const;
+  type ExpenseEditableKey = (typeof expenseEditableKeys)[number];
+
+  const buildExpenseCellId = (rowKey: string, columnKey: ExpenseEditableKey) => `cash-expense-${rowKey}-${columnKey}`;
+
+  const focusExpenseCellByKey = (rowKey: string, columnKey: ExpenseEditableKey) => {
+    const target = document.getElementById(buildExpenseCellId(rowKey, columnKey)) as HTMLInputElement | null;
+    if (target) {
+      target.focus();
+      target.select?.();
+    }
+  };
+
+  const addExpenseRowAndFocus = (columnKey: ExpenseEditableKey) => {
+    const newRow = createExpenseTaxRow();
+    setExpenseTaxRows((prev) => [...prev, newRow]);
+    requestAnimationFrame(() => focusExpenseCellByKey(newRow.key, columnKey));
+  };
+
+  const handleExpenseCellKeyDown =
+    (rowIndex: number, columnKey: ExpenseEditableKey) => (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        const prevIndex = rowIndex - 1;
+        if (prevIndex >= 0 && expenseTaxRows[prevIndex]) {
+          focusExpenseCellByKey(expenseTaxRows[prevIndex].key, columnKey);
+        }
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        const nextIndex = rowIndex + 1;
+        if (nextIndex < expenseTaxRows.length && expenseTaxRows[nextIndex]) {
+          focusExpenseCellByKey(expenseTaxRows[nextIndex].key, columnKey);
+        } else {
+          addExpenseRowAndFocus(columnKey);
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        const currentIndex = expenseEditableKeys.indexOf(columnKey);
+        if (currentIndex > 0) {
+          focusExpenseCellByKey(expenseTaxRows[rowIndex].key, expenseEditableKeys[currentIndex - 1]);
+        }
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        const currentIndex = expenseEditableKeys.indexOf(columnKey);
+        if (currentIndex >= 0 && currentIndex < expenseEditableKeys.length - 1) {
+          focusExpenseCellByKey(expenseTaxRows[rowIndex].key, expenseEditableKeys[currentIndex + 1]);
+        }
+      }
+    };
+
   const expenseTaxColumns: ColumnsType<ExpenseInvoiceTaxRow> = [
     {
       title: "#",
@@ -956,14 +1085,19 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
       align: "center",
       render: (_value, _record, index) => index + 1
     },
-    {
-      title: "Diễn giải thuế",
-      dataIndex: "taxDescription",
-      key: "taxDescription",
-      render: (value: string, record) => (
-        <Input value={value} onChange={(event) => updateExpenseTaxRow(record.key, { taxDescription: event.target.value })} />
-      )
-    },
+      {
+        title: "Diễn giải thuế",
+        dataIndex: "taxDescription",
+        key: "taxDescription",
+        render: (value: string, record, rowIndex) => (
+          <Input
+            id={buildExpenseCellId(record.key, "taxDescription")}
+            value={value}
+            onKeyDown={handleExpenseCellKeyDown(rowIndex, "taxDescription")}
+            onChange={(event) => updateExpenseTaxRow(record.key, { taxDescription: event.target.value })}
+          />
+        )
+      },
     {
       title: "Có hóa đơn",
       dataIndex: "hasInvoice",
@@ -974,82 +1108,103 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
         <Checkbox checked={value} onChange={(event) => updateExpenseTaxRow(record.key, { hasInvoice: event.target.checked })} />
       )
     },
-    {
-      title: "% Thuế GTGT",
-      dataIndex: "vatRate",
-      key: "vatRate",
-      width: 120,
-      align: "right",
-      render: (value: number, record) => (
-        <InputNumber
-          value={value}
-          min={0}
-          max={100}
-          controls={false}
-          style={{ width: "100%" }}
-          onChange={(nextValue) => updateExpenseTaxRow(record.key, { vatRate: Number(nextValue ?? 0) })}
-        />
-      )
-    },
-    {
-      title: "Tiền thuế GTGT",
-      dataIndex: "vatAmount",
-      key: "vatAmount",
-      width: 150,
-      align: "right",
-      render: (value: number, record) => (
-        <InputNumber
-          value={value}
-          min={0}
-          controls={false}
-          style={{ width: "100%" }}
-          formatter={formatAmountInput}
-          parser={parseAmountInput}
-          onChange={(nextValue) => updateExpenseTaxRow(record.key, { vatAmount: Number(nextValue ?? 0) })}
-        />
-      )
-    },
-    {
-      title: "TK thuế GTGT",
-      dataIndex: "vatAccount",
-      key: "vatAccount",
-      width: 120,
-      render: (value: string, record) => (
-        <Input value={value} onChange={(event) => updateExpenseTaxRow(record.key, { vatAccount: event.target.value })} />
-      )
-    },
-    {
-      title: "Ngày hóa đơn",
-      dataIndex: "invoiceDate",
-      key: "invoiceDate",
-      width: 140,
-      render: (value: Dayjs | null, record) => (
-        <DatePicker
-          value={value}
-          format="DD/MM/YYYY"
-          style={{ width: "100%" }}
-          onChange={(nextValue) => updateExpenseTaxRow(record.key, { invoiceDate: nextValue })}
-        />
-      )
-    },
-    {
-      title: "Số hóa đơn",
-      dataIndex: "invoiceNo",
-      key: "invoiceNo",
-      width: 120,
-      render: (value: string, record) => (
-        <Input value={value} onChange={(event) => updateExpenseTaxRow(record.key, { invoiceNo: event.target.value })} />
-      )
-    },
-    {
-      title: "Nhóm HHDV mua vào",
-      dataIndex: "purchaseGroup",
-      key: "purchaseGroup",
-      width: 180,
-      render: (value: string, record) => (
-        <Input value={value} onChange={(event) => updateExpenseTaxRow(record.key, { purchaseGroup: event.target.value })} />
-      )
-    },
+      {
+        title: "% Thuế GTGT",
+        dataIndex: "vatRate",
+        key: "vatRate",
+        width: 120,
+        align: "right",
+        render: (value: number, record, rowIndex) => (
+          <InputNumber
+            id={buildExpenseCellId(record.key, "vatRate")}
+            value={value}
+            min={0}
+            max={100}
+            controls={false}
+            style={{ width: "100%" }}
+            onKeyDown={handleExpenseCellKeyDown(rowIndex, "vatRate")}
+            onChange={(nextValue) => updateExpenseTaxRow(record.key, { vatRate: Number(nextValue ?? 0) })}
+          />
+        )
+      },
+      {
+        title: "Tiền thuế GTGT",
+        dataIndex: "vatAmount",
+        key: "vatAmount",
+        width: 150,
+        align: "right",
+        render: (value: number, record, rowIndex) => (
+          <InputNumber
+            id={buildExpenseCellId(record.key, "vatAmount")}
+            value={value}
+            min={0}
+            controls={false}
+            style={{ width: "100%" }}
+            formatter={formatAmountInput}
+            parser={parseAmountInput}
+            onKeyDown={handleExpenseCellKeyDown(rowIndex, "vatAmount")}
+            onChange={(nextValue) => updateExpenseTaxRow(record.key, { vatAmount: Number(nextValue ?? 0) })}
+          />
+        )
+      },
+      {
+        title: "TK thuế GTGT",
+        dataIndex: "vatAccount",
+        key: "vatAccount",
+        width: 120,
+        render: (value: string, record, rowIndex) => (
+          <Input
+            id={buildExpenseCellId(record.key, "vatAccount")}
+            value={value}
+            onKeyDown={handleExpenseCellKeyDown(rowIndex, "vatAccount")}
+            onChange={(event) => updateExpenseTaxRow(record.key, { vatAccount: event.target.value })}
+          />
+        )
+      },
+      {
+        title: "Ngày hóa đơn",
+        dataIndex: "invoiceDate",
+        key: "invoiceDate",
+        width: 140,
+        render: (value: Dayjs | null, record, rowIndex) => (
+          <DatePicker
+            id={buildExpenseCellId(record.key, "invoiceDate")}
+            value={value}
+            format="DD/MM/YYYY"
+            style={{ width: "100%" }}
+            onKeyDown={handleExpenseCellKeyDown(rowIndex, "invoiceDate")}
+            onChange={(nextValue) => updateExpenseTaxRow(record.key, { invoiceDate: nextValue })}
+          />
+        )
+      },
+      {
+        title: "Số hóa đơn",
+        dataIndex: "invoiceNo",
+        key: "invoiceNo",
+        width: 120,
+        render: (value: string, record, rowIndex) => (
+          <Input
+            id={buildExpenseCellId(record.key, "invoiceNo")}
+            value={value}
+            onKeyDown={handleExpenseCellKeyDown(rowIndex, "invoiceNo")}
+            onChange={(event) => updateExpenseTaxRow(record.key, { invoiceNo: event.target.value })}
+          />
+        )
+      },
+      {
+        title: "Nhóm HHDV mua vào",
+        dataIndex: "purchaseGroup",
+        key: "purchaseGroup",
+        width: 180,
+        render: (value: string, record, rowIndex) => (
+          <Input
+            id={buildExpenseCellId(record.key, "purchaseGroup")}
+            value={value}
+            onKeyDown={handleExpenseCellKeyDown(rowIndex, "purchaseGroup")}
+            onChange={(event) => updateExpenseTaxRow(record.key, { purchaseGroup: event.target.value })}
+          />
+        )
+      },
     {
       title: "",
       key: "action",

@@ -660,7 +660,12 @@ body,
 }
 
 .sales-voucher-detail-table .ant-table table {
-  table-layout: fixed;
+  table-layout: auto;
+  width: 100%;
+}
+
+.sales-voucher-detail-table .ant-table-container {
+  overflow-x: hidden;
 }
 
 .sales-voucher-detail-table .ant-table-thead > tr > th {

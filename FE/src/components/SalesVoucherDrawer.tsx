@@ -287,6 +287,18 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     return -1;
   };
 
+  const addRowAndFocus = (columnKey: EditableColumnKey) => {
+    const newRow = createEmptyRow();
+    setRows((prev) => [...prev, newRow]);
+    requestAnimationFrame(() => {
+      const target = document.getElementById(buildCellId(newRow.key, columnKey)) as HTMLInputElement | null;
+      if (target) {
+        target.focus();
+        target.select?.();
+      }
+    });
+  };
+
   const handleCellKeyDown = (rowIndex: number, columnKey: EditableColumnKey) => (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowUp") {
       event.preventDefault();
@@ -301,6 +313,8 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       const nextIndex = findAdjacentItemRow(rowIndex, 1);
       if (nextIndex >= 0) {
         focusCell(nextIndex, columnKey);
+      } else {
+        addRowAndFocus(columnKey);
       }
       return;
     }
@@ -734,12 +748,12 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       : undefined;
 
   const columns: ColumnsType<SalesRow> = [
-    { title: "#", key: "stt", width: 48, align: "center", render: (_value, _record, index) => index + 1 },
-    {
-      title: "Mã hàng",
-      dataIndex: "productId",
-      key: "productId",
-      width: 156,
+      { title: "#", key: "stt", width: 40, align: "center", render: (_value, _record, index) => index + 1 },
+      {
+        title: "Mã hàng",
+        dataIndex: "productId",
+        key: "productId",
+        width: 140,
       render: (_value, record) => {
         if (record.rowType === "NOTE") return <Typography.Text type="secondary">Ghi chú</Typography.Text>;
         return (
@@ -775,12 +789,12 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       ellipsis: true,
       render: (value: string | undefined, record) => record.rowType === "NOTE" ? <Input value={record.noteText} placeholder="Nhập ghi chú cho chứng từ" onChange={(event) => updateRow(record.key, { noteText: event.target.value })} /> : value || productMap.get(record.productId ?? "")?.name || "-"
     },
-    { title: "ĐVT", dataIndex: "unitName", key: "unitName", width: 72, align: "center", render: (value: string, record) => (record.rowType === "NOTE" ? "-" : value || "-") },
-    {
-      title: "Số lượng",
-      dataIndex: "quantity",
-      key: "quantity",
-      width: 110,
+      { title: "ĐVT", dataIndex: "unitName", key: "unitName", width: 60, align: "center", render: (value: string, record) => (record.rowType === "NOTE" ? "-" : value || "-") },
+      {
+        title: "Số lượng",
+        dataIndex: "quantity",
+        key: "quantity",
+        width: 96,
       align: "right",
       render: (value: number, record, rowIndex) => {
         if (record.rowType === "NOTE") {
@@ -804,11 +818,11 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         );
       }
     },
-    {
-      title: "Đơn giá",
-      dataIndex: "unitPrice",
-      key: "unitPrice",
-      width: 128,
+      {
+        title: "Đơn giá",
+        dataIndex: "unitPrice",
+        key: "unitPrice",
+        width: 112,
       align: "right",
       render: (value: number, record, rowIndex) =>
         record.rowType === "NOTE"
@@ -818,11 +832,11 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
               onKeyDown: handleCellKeyDown(rowIndex, "unitPrice")
             })
     },
-    {
-      title: "% Chiết khấu",
-      dataIndex: "discountRate",
-      key: "discountRate",
-      width: 108,
+      {
+        title: "% Chiết khấu",
+        dataIndex: "discountRate",
+        key: "discountRate",
+        width: 96,
       align: "right",
       render: (value: number, record, rowIndex) =>
         record.rowType === "NOTE"
@@ -837,10 +851,10 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
               }
             )
     },
-    {
-      title: "Đơn giá sau CK",
-      key: "unitPriceAfterDiscount",
-      width: 128,
+      {
+        title: "Đơn giá sau CK",
+        key: "unitPriceAfterDiscount",
+        width: 112,
       align: "right",
       render: (_value, record) => {
         if (record.rowType === "NOTE") {
@@ -850,11 +864,11 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         return <Typography.Text>{formatCurrency(discountedPrice)}</Typography.Text>;
       }
     },
-    {
-      title: "% Thuế GTGT",
-      dataIndex: "taxRate",
-      key: "taxRate",
-      width: 108,
+      {
+        title: "% Thuế GTGT",
+        dataIndex: "taxRate",
+        key: "taxRate",
+        width: 96,
       align: "right",
       render: (value: number, record, rowIndex) =>
         record.rowType === "NOTE"
@@ -869,16 +883,16 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
               }
             )
     },
-    {
-      title: "Thành tiền",
-      dataIndex: "lineTotal",
-      key: "lineTotal",
-      width: 148,
+      {
+        title: "Thành tiền",
+        dataIndex: "lineTotal",
+        key: "lineTotal",
+        width: 128,
       align: "right",
       render: (value: number, record) => record.rowType === "NOTE" ? "-" : <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
     },
-    { title: "", key: "action", align: "center", width: 56, render: (_value, record) => <Button type="text" danger icon={<DeleteOutlined />} onClick={() => deleteRow(record.key)} /> }
-  ];
+      { title: "", key: "action", align: "center", width: 48, render: (_value, record) => <Button type="text" danger icon={<DeleteOutlined />} onClick={() => deleteRow(record.key)} /> }
+    ];
 
   return (
     <>
