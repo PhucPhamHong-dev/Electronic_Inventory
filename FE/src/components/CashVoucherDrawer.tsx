@@ -1088,7 +1088,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
 
     const baseFields = invoiceBased
       ? ["partnerId", "voucherDate", "paymentMethod"]
-      : ["accountingDate", "voucherDate", ...(requiresMandatoryPartner ? ["partnerId"] : [])];
+      : ["accountingDate", "voucherDate", "paymentMethod", ...(requiresMandatoryPartner ? ["partnerId"] : [])];
     const values = await form.validateFields(baseFields);
 
     if (invoiceBased) {
@@ -1201,7 +1201,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
             isInvoiceBased: false,
             voucherDate: values.accountingDate?.toISOString(),
             note: values.note,
-            paymentMethod: "CASH" as PaymentMethod,
+            paymentMethod: values.paymentMethod,
             allocations: [],
             metadata
           };
@@ -1401,6 +1401,16 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
                     <Col xs={24} lg={6}>
                       <Form.Item label="Ngày hạch toán" name="accountingDate" rules={[{ required: true, message: "Bắt buộc" }]}>
                         <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} lg={6}>
+                      <Form.Item label="Phương thức" name="paymentMethod" rules={[{ required: true, message: "Bắt buộc" }]}>
+                        <AppSelect
+                          options={[
+                            { value: "CASH", label: "Tiền mặt" },
+                            { value: "TRANSFER", label: "Chuyển khoản" }
+                          ]}
+                        />
                       </Form.Item>
                     </Col>
                     <Col xs={24} lg={7}>
