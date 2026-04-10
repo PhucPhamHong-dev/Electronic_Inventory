@@ -19,7 +19,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
-import { useEffect, useMemo, useState, type FocusEvent } from "react";
+import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent } from "react";
 import * as XLSX from "xlsx-js-style";
 import { AppSelect } from "./common/AppSelect";
 import { PartnerModal, type PartnerFormValues } from "./PartnerModal";
@@ -85,6 +85,12 @@ interface QuotationRow {
   discountAmount: number;
   taxAmount: number;
   netAmount: number;
+}
+
+type QuotationEditableKey = "productId" | "productName" | "unitName" | "quantity" | "price" | "discountPercent" | "taxPercent";
+
+function buildQuotationCellId(rowKey: string, columnKey: QuotationEditableKey): string {
+  return `quotation-cell-${rowKey}-${columnKey}`;
 }
 
 function createEmptyRow(): QuotationRow {
@@ -170,11 +176,12 @@ function escapeHtml(value: string): string {
 function renderEditableNumberCell(
   value: number,
   onChange: (nextValue: number) => void,
-  options?: { max?: number }
+  options?: { max?: number; inputId?: string; onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void }
 ) {
   return (
     <div className="sales-voucher-number-editor">
       <InputNumber
+        id={options?.inputId}
         value={value}
         min={0}
         max={options?.max}
@@ -184,6 +191,7 @@ function renderEditableNumberCell(
         parser={parseInputNumberValue}
         onFocus={handleInputNumberFocus}
         onChange={(nextValue) => onChange(Number(nextValue ?? 0))}
+        onKeyDown={options?.onKeyDown}
       />
     </div>
   );
@@ -427,6 +435,14 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
   };
 
   const addRow = () => setRows((prev) => [...prev, createEmptyRow()]);
+  const addRowAndFocus = (columnKey: QuotationEditableKey) => {
+    const newRow = createEmptyRow();
+    setRows((prev) => [...prev, newRow]);
+    requestAnimationFrame(() => {
+      const target = document.getElementById(buildQuotationCellId(newRow.key, columnKey)) as HTMLElement | null;
+      target?.focus();
+    });
+  };
   const clearRows = () => setRows([createEmptyRow()]);
   const deleteRow = (rowKey: string) => {
     setRows((prev) => {
@@ -434,6 +450,15 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       return next.length > 0 ? next : [createEmptyRow()];
     });
   };
+
+  const handleQuotationCellKeyDown =
+    (rowIndex: number, columnKey: QuotationEditableKey) => (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key !== "ArrowDown") {
+        return;
+      }
+      event.preventDefault();
+      addRowAndFocus(columnKey);
+    };
 
   const columns: ColumnsType<QuotationRow> = [
     {
@@ -450,6 +475,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       width: 140,
       render: (_value, record) => (
         <AppSelect
+          id={buildQuotationCellId(record.key, "productId")}
           value={record.productId}
           showSearch
           placeholder="Chọn hàng hóa"
@@ -486,6 +512,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
               price: resolveQuotationUnitPrice(selected)
             });
           }}
+          onKeyDown={handleQuotationCellKeyDown(rows.findIndex((row) => row.key === record.key), "productId")}
         />
       )
     },
@@ -496,9 +523,11 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       width: 220,
       render: (_value, record) => (
         <Input
+          id={buildQuotationCellId(record.key, "productName")}
           value={record.productName}
           placeholder="Tên hàng"
           onChange={(event) => updateRow(record.key, { productName: event.target.value })}
+          onKeyDown={handleQuotationCellKeyDown(rows.findIndex((row) => row.key === record.key), "productName")}
         />
       )
     },
@@ -509,7 +538,12 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       width: 72,
       align: "center",
       render: (_value, record) => (
-        <Input value={record.unitName} onChange={(event) => updateRow(record.key, { unitName: event.target.value })} />
+        <Input
+          id={buildQuotationCellId(record.key, "unitName")}
+          value={record.unitName}
+          onChange={(event) => updateRow(record.key, { unitName: event.target.value })}
+          onKeyDown={handleQuotationCellKeyDown(rows.findIndex((row) => row.key === record.key), "unitName")}
+        />
       )
     },
     {
@@ -518,7 +552,11 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       key: "quantity",
       width: 100,
       align: "right",
-      render: (value: number, record) => renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { quantity: nextValue }))
+      render: (value: number, record, rowIndex) =>
+        renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { quantity: nextValue }), {
+          inputId: buildQuotationCellId(record.key, "quantity"),
+          onKeyDown: handleQuotationCellKeyDown(rowIndex, "quantity")
+        })
     },
     {
       title: "Đơn giá",
@@ -526,7 +564,11 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       key: "price",
       width: 110,
       align: "right",
-      render: (value: number, record) => renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { price: nextValue }))
+      render: (value: number, record, rowIndex) =>
+        renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { price: nextValue }), {
+          inputId: buildQuotationCellId(record.key, "price"),
+          onKeyDown: handleQuotationCellKeyDown(rowIndex, "price")
+        })
     },
     {
       title: "% Chiết khấu",
@@ -534,8 +576,12 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       key: "discountPercent",
       width: 100,
       align: "right",
-      render: (value: number, record) =>
-        renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { discountPercent: nextValue }), { max: 100 })
+      render: (value: number, record, rowIndex) =>
+        renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { discountPercent: nextValue }), {
+          max: 100,
+          inputId: buildQuotationCellId(record.key, "discountPercent"),
+          onKeyDown: handleQuotationCellKeyDown(rowIndex, "discountPercent")
+        })
     },
     {
       title: "Đơn giá sau CK",
@@ -557,8 +603,12 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       key: "taxPercent",
       width: 100,
       align: "right",
-      render: (value: number, record) =>
-        renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { taxPercent: nextValue }), { max: 100 })
+      render: (value: number, record, rowIndex) =>
+        renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { taxPercent: nextValue }), {
+          max: 100,
+          inputId: buildQuotationCellId(record.key, "taxPercent"),
+          onKeyDown: handleQuotationCellKeyDown(rowIndex, "taxPercent")
+        })
     },
     {
       title: "Thành tiền",

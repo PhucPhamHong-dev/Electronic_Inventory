@@ -310,12 +310,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      const nextIndex = findAdjacentItemRow(rowIndex, 1);
-      if (nextIndex >= 0) {
-        focusCell(nextIndex, columnKey);
-      } else {
-        addRowAndFocus(columnKey);
-      }
+      addRowAndFocus(columnKey);
       return;
     }
     if (event.key === "ArrowLeft") {

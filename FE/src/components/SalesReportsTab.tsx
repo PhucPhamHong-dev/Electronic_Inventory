@@ -23,6 +23,7 @@ import {
   Radio,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Typography,
@@ -785,6 +786,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
 
   const resolvedReportTypeTag =
     reportType === MATERIAL_REPORT_TYPE ? <Tag color="geekblue">Vật tư hàng hóa</Tag> : reportTypeTag;
+  const reportContentLoading = reportQueryMutation.isPending || autoQueryPending || filtersQuery.isFetching;
 
   const activeImportConfig = REPORT_IMPORT_CONFIGS[importDomain];
 
@@ -2431,6 +2433,10 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
                 }}
               />
             )}
+          </div>
+        ) : reportContentLoading ? (
+          <div className="sales-report-empty">
+            <Spin size="large" tip="Đang tải dữ liệu báo cáo..." />
           </div>
         ) : (
           <div className="sales-report-empty">

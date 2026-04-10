@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FocusEvent } from "react";
+import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -63,6 +63,12 @@ interface TotalsSnapshot {
   totalDiscount: number;
   totalTaxAmount: number;
   totalNetAmount: number;
+}
+
+type VoucherEditableKey = "productId" | "unit" | "quantity" | "unitPrice" | "discountRate" | "taxRate";
+
+function buildVoucherCellId(rowKey: string, columnKey: VoucherEditableKey): string {
+  return `voucher-form-cell-${rowKey}-${columnKey}`;
 }
 
 interface ProductSelectOption {
@@ -348,6 +354,15 @@ export function VoucherFormPage() {
     setRows((previous) => [...previous, createEmptyRow()]);
   };
 
+  const addRowAndFocus = (columnKey: VoucherEditableKey) => {
+    const newRow = createEmptyRow();
+    setRows((previous) => [...previous, newRow]);
+    requestAnimationFrame(() => {
+      const target = document.getElementById(buildVoucherCellId(newRow.key, columnKey)) as HTMLElement | null;
+      target?.focus();
+    });
+  };
+
   const deleteSelectedRow = () => {
     if (!selectedRowKey) {
       return;
@@ -430,6 +445,19 @@ export function VoucherFormPage() {
     { key: "Delete", handler: deleteSelectedRow }
   ]);
 
+  const handleVoucherCellKeyDown =
+    (rowIndex: number, columnKey: VoucherEditableKey) => (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key === "Enter") {
+        focusNextEditor(event.currentTarget as HTMLElement);
+        return;
+      }
+      if (event.key !== "ArrowDown") {
+        return;
+      }
+      event.preventDefault();
+      addRowAndFocus(columnKey);
+    };
+
   const columns: ColumnsType<VoucherRow> = [
     {
       title: "STT",
@@ -446,6 +474,7 @@ export function VoucherFormPage() {
       width: 250,
       render: (_value, record) => (
         <AppSelect
+          id={buildVoucherCellId(record.key, "productId")}
           value={record.productId}
           showSearch
           optionFilterProp="searchText"
@@ -476,11 +505,7 @@ export function VoucherFormPage() {
             });
           }}
           data-voucher-editor="true"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              focusNextEditor(event.currentTarget as HTMLElement);
-            }
-          }}
+          onKeyDown={handleVoucherCellKeyDown(rows.findIndex((row) => row.key === record.key), "productId")}
         />
       )
     },
@@ -492,16 +517,13 @@ export function VoucherFormPage() {
       width: 90,
       render: (value: string, record) => (
         <Input
+          id={buildVoucherCellId(record.key, "unit")}
           value={value}
           onChange={(event) => {
             updateRow(record.key, { unit: event.target.value });
           }}
           data-voucher-editor="true"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              focusNextEditor(event.currentTarget as HTMLElement);
-            }
-          }}
+          onKeyDown={handleVoucherCellKeyDown(rows.findIndex((row) => row.key === record.key), "unit")}
         />
       )
     },
@@ -513,6 +535,7 @@ export function VoucherFormPage() {
       width: 110,
       render: (value: number, record) => (
         <InputNumber
+          id={buildVoucherCellId(record.key, "quantity")}
           value={value}
           min={0}
           controls={false}
@@ -524,11 +547,7 @@ export function VoucherFormPage() {
             updateRow(record.key, { quantity: Number(nextValue ?? 0) });
           }}
           data-voucher-editor="true"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              focusNextEditor(event.currentTarget as HTMLElement);
-            }
-          }}
+          onKeyDown={handleVoucherCellKeyDown(rows.findIndex((row) => row.key === record.key), "quantity")}
         />
       )
     },
@@ -540,6 +559,7 @@ export function VoucherFormPage() {
       width: 130,
       render: (value: number, record) => (
         <InputNumber
+          id={buildVoucherCellId(record.key, "unitPrice")}
           value={value}
           min={0}
           controls={false}
@@ -551,11 +571,7 @@ export function VoucherFormPage() {
             updateRow(record.key, { unitPrice: Number(nextValue ?? 0) });
           }}
           data-voucher-editor="true"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              focusNextEditor(event.currentTarget as HTMLElement);
-            }
-          }}
+          onKeyDown={handleVoucherCellKeyDown(rows.findIndex((row) => row.key === record.key), "unitPrice")}
         />
       )
     },
@@ -567,6 +583,7 @@ export function VoucherFormPage() {
       width: 90,
       render: (value: number, record) => (
         <InputNumber
+          id={buildVoucherCellId(record.key, "discountRate")}
           value={value}
           min={0}
           max={100}
@@ -579,11 +596,7 @@ export function VoucherFormPage() {
             updateRow(record.key, { discountRate: Number(nextValue ?? 0) });
           }}
           data-voucher-editor="true"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              focusNextEditor(event.currentTarget as HTMLElement);
-            }
-          }}
+          onKeyDown={handleVoucherCellKeyDown(rows.findIndex((row) => row.key === record.key), "discountRate")}
         />
       )
     },
@@ -595,6 +608,7 @@ export function VoucherFormPage() {
       width: 95,
       render: (value: number, record) => (
         <InputNumber
+          id={buildVoucherCellId(record.key, "taxRate")}
           value={value}
           min={0}
           max={100}
@@ -607,11 +621,7 @@ export function VoucherFormPage() {
             updateRow(record.key, { taxRate: Number(nextValue ?? 0) });
           }}
           data-voucher-editor="true"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              focusNextEditor(event.currentTarget as HTMLElement);
-            }
-          }}
+          onKeyDown={handleVoucherCellKeyDown(rows.findIndex((row) => row.key === record.key), "taxRate")}
         />
       )
     },

@@ -742,7 +742,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
   };
 
   const handleDirectCellKeyDown =
-    (rowIndex: number, columnKey: DirectEditableKey) => (event: KeyboardEvent<HTMLInputElement>) => {
+    (rowIndex: number, columnKey: DirectEditableKey) => (event: KeyboardEvent<HTMLElement>) => {
       if (event.key === "ArrowUp") {
         event.preventDefault();
         const prevIndex = rowIndex - 1;
@@ -753,12 +753,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
       }
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        const nextIndex = rowIndex + 1;
-        if (nextIndex < directRows.length && directRows[nextIndex]) {
-          focusDirectCellByKey(directRows[nextIndex].key, columnKey);
-        } else {
-          addDirectRowAndFocus(columnKey);
-        }
+        addDirectRowAndFocus(columnKey);
         return;
       }
       if (event.key === "ArrowLeft") {
@@ -1041,7 +1036,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
   };
 
   const handleExpenseCellKeyDown =
-    (rowIndex: number, columnKey: ExpenseEditableKey) => (event: KeyboardEvent<HTMLInputElement>) => {
+    (rowIndex: number, columnKey: ExpenseEditableKey) => (event: KeyboardEvent<HTMLElement>) => {
       if (event.key === "ArrowUp") {
         event.preventDefault();
         const prevIndex = rowIndex - 1;
@@ -1052,12 +1047,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
       }
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        const nextIndex = rowIndex + 1;
-        if (nextIndex < expenseTaxRows.length && expenseTaxRows[nextIndex]) {
-          focusExpenseCellByKey(expenseTaxRows[nextIndex].key, columnKey);
-        } else {
-          addExpenseRowAndFocus(columnKey);
-        }
+        addExpenseRowAndFocus(columnKey);
         return;
       }
       if (event.key === "ArrowLeft") {
@@ -1868,6 +1858,4 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
     </>
   );
 }
-
-
 
