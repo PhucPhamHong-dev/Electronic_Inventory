@@ -504,10 +504,20 @@ function parsePaymentStatus(value: RawImportCellValue, strict = false): PaymentS
   if (raw === "paid" || raw.includes("da thanh toan")) {
     return "PAID";
   }
-  if (raw === "partial" || raw.includes("thanh toan mot phan") || raw.includes("mot phan")) {
+  if (
+    raw === "partial" ||
+    raw.includes("thanh toan mot phan") ||
+    raw.includes("mot phan") ||
+    raw === "thanh toan"
+  ) {
     return "PARTIAL";
   }
-  if (raw === "unpaid" || raw.includes("chua thanh toan") || raw.includes("chua thu")) {
+  if (
+    raw === "unpaid" ||
+    raw.includes("chua thanh toan") ||
+    raw.includes("chua thu") ||
+    raw.includes("chua thu tien")
+  ) {
     return "UNPAID";
   }
   return strict ? null : "UNPAID";

@@ -13,7 +13,8 @@ const paginationSchema = z.object({
   pageSize: z.coerce.number().int().positive().max(200).default(20),
   keyword: z.string().optional(),
   type: z.enum(["SUPPLIER", "CUSTOMER", "BOTH"]).optional(),
-  group: z.enum(["CUSTOMER", "SUPPLIER"]).optional()
+  group: z.enum(["CUSTOMER", "SUPPLIER"]).optional(),
+  debtOnly: z.coerce.boolean().optional()
 });
 
 const arLedgerQuerySchema = z.object({

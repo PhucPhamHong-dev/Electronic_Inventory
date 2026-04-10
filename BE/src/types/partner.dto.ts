@@ -7,6 +7,7 @@ export interface ListPartnersQueryDto {
   keyword?: string;
   type?: PartnerTypeValue;
   group?: PartnerGroupValue;
+  debtOnly?: boolean;
 }
 
 export interface CreatePartnerDto {

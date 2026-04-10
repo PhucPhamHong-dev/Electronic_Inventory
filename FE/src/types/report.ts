@@ -12,6 +12,7 @@ export interface ReportQueryPayload {
   fromDate?: string;
   toDate?: string;
   partnerIds?: string[];
+  productIds?: string[];
 }
 
 export interface ReportDetailRow {
@@ -22,6 +23,7 @@ export interface ReportDetailRow {
   partnerId: string | null;
   partnerCode: string | null;
   partnerName: string | null;
+  paymentStatus: "UNPAID" | "PARTIAL" | "PAID";
   note: string | null;
   productId: string;
   skuCode: string;

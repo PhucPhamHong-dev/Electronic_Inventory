@@ -63,6 +63,7 @@ export interface ReportQueryInput {
   fromDate?: Date;
   toDate?: Date;
   partnerIds?: string[];
+  productIds?: string[];
 }
 
 export interface SaveReportTemplateInput {
@@ -90,6 +91,7 @@ export interface ReportDetailRow {
   partnerId: string | null;
   partnerCode: string | null;
   partnerName: string | null;
+  paymentStatus: PaymentStatus;
   note: string | null;
   productId: string;
   skuCode: string;
@@ -382,20 +384,23 @@ export class ReportService {
             lte: input.toDate ? clampEndOfDay(input.toDate) : undefined
           }
         : undefined;
+    const productFilter = input.productIds?.length ? { in: input.productIds } : undefined;
 
     const vouchers = await this.db.voucher.findMany({
       where: {
         deletedAt: null,
         type: voucherType,
-        status: VoucherStatus.BOOKED,
+        status: { in: [VoucherStatus.BOOKED, VoucherStatus.DRAFT] },
         partnerId: input.partnerIds?.length ? { in: input.partnerIds } : undefined,
-        voucherDate: voucherDateFilter
+        voucherDate: voucherDateFilter,
+        items: productFilter ? { some: { productId: productFilter } } : undefined
       },
       select: {
         id: true,
         voucherNo: true,
         voucherDate: true,
         note: true,
+        paymentStatus: true,
         partnerId: true,
         partner: {
           select: {
@@ -404,6 +409,7 @@ export class ReportService {
           }
         },
         items: {
+          where: productFilter ? { productId: productFilter } : undefined,
           select: {
             id: true,
             productId: true,
@@ -427,16 +433,23 @@ export class ReportService {
       orderBy: [{ voucherDate: "asc" }, { createdAt: "asc" }]
     });
 
-    const rows: ReportDetailRow[] = vouchers.flatMap((voucher) =>
-      voucher.items.map((item) => ({
+    const rows: ReportDetailRow[] = vouchers.flatMap((voucher) => {
+      const partnerName = voucher.partner?.name ?? null;
+      const trimmedNote = (voucher.note ?? "").trim();
+      const note =
+        trimmedNote ||
+        (voucherType === VoucherType.SALES && partnerName ? `Kho bán hàng cho chính ${partnerName}` : null);
+
+      return voucher.items.map((item) => ({
         key: item.id,
         voucherId: voucher.id,
         voucherNo: voucher.voucherNo,
         voucherDate: voucher.voucherDate,
         partnerId: voucher.partnerId,
         partnerCode: voucher.partner?.code ?? null,
-        partnerName: voucher.partner?.name ?? null,
-        note: voucher.note,
+        partnerName,
+        paymentStatus: voucher.paymentStatus,
+        note,
         productId: item.productId,
         skuCode: item.product.skuCode,
         productName: item.product.name,
@@ -449,8 +462,8 @@ export class ReportService {
         taxRate: toNumber(item.taxRate),
         taxAmount: toNumber(item.taxAmount),
         lineAmount: Number((toNumber(item.quantity) * toNumber(item.netPrice)).toFixed(4))
-      }))
-    );
+      }));
+    });
 
     const summary = rows.reduce(
       (acc, row) => {

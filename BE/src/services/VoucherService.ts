@@ -256,6 +256,17 @@ export class VoucherService {
           await this.setTransactionContext(tx, context);
           this.logStep(context, "Receipt Pre-flight", "Pre-flight Check");
 
+          const partnerName = payload.partnerId
+            ? (
+                await tx.partner.findUnique({
+                  where: { id: payload.partnerId },
+                  select: { name: true }
+                })
+              )?.name
+            : undefined;
+          const resolvedDescription =
+            payload.description?.trim() ||
+            (partnerName ? `Thu tiền khách hàng ${partnerName}` : "Thu tiền khách hàng");
           const amount = roundTo(payload.amount, 4);
           const voucher = await tx.voucher.create({
             data: {
@@ -265,7 +276,7 @@ export class VoucherService {
               paidAmount: this.decimal(amount, 4),
               partnerId: payload.partnerId,
               voucherDate: this.parseDate(payload.voucherDate),
-              note: payload.description,
+              note: resolvedDescription,
               totalAmount: this.decimal(amount, 4),
               totalDiscount: this.decimal(0, 4),
               totalTaxAmount: this.decimal(0, 4),
@@ -282,8 +293,9 @@ export class VoucherService {
             voucher.id,
             payload.partnerId,
             amount,
-            payload.description ?? "Receipt voucher",
-            payload.referenceVoucherId
+            resolvedDescription,
+            payload.referenceVoucherId,
+            null
           );
           this.logStep(context, "Receipt Post-processing", "Post-processing", { voucherId: voucher.id });
           return voucher;
@@ -409,6 +421,21 @@ export class VoucherService {
           }
         }
 
+        const partnerName = payload.partnerId
+          ? (
+              await tx.partner.findUnique({
+                where: { id: payload.partnerId },
+                select: { name: true }
+              })
+            )?.name
+          : undefined;
+        const defaultNote = this.buildCashVoucherDefaultNote(
+          payload.voucherType === VoucherType.RECEIPT,
+          payload.paymentReason,
+          partnerName
+        );
+        const resolvedNote = payload.note?.trim() || defaultNote;
+
         const voucher = await tx.voucher.create({
           data: {
             type: payload.voucherType,
@@ -418,7 +445,7 @@ export class VoucherService {
             paymentReason: payload.paymentReason,
             partnerId: payload.partnerId ?? null,
             voucherDate: this.parseDate(payload.voucherDate),
-            note: payload.note,
+            note: resolvedNote,
             totalAmount: this.decimal(normalizedAmount, 4),
             totalDiscount: this.decimal(0, 4),
             totalTaxAmount: this.decimal(0, 4),
@@ -445,12 +472,13 @@ export class VoucherService {
 
             const invoice = await tx.voucher.findUniqueOrThrow({
               where: { id: allocation.invoiceId },
-              select: {
-                id: true,
-                totalNetAmount: true,
-                paidAmount: true
-              }
-            });
+            select: {
+              id: true,
+              totalNetAmount: true,
+              paidAmount: true,
+              paymentMethod: true
+            }
+          });
             const nextPaidAmount = roundTo(this.toNumber(invoice.paidAmount) + allocation.amountApplied, 4);
             const totalNetAmount = this.toNumber(invoice.totalNetAmount);
 
@@ -458,7 +486,11 @@ export class VoucherService {
               where: { id: invoice.id },
               data: {
                 paidAmount: this.decimal(nextPaidAmount, 4),
-                paymentStatus: this.derivePaymentStatus(nextPaidAmount, totalNetAmount)
+                paymentStatus: this.derivePaymentStatus(nextPaidAmount, totalNetAmount),
+                paymentMethod:
+                  nextPaidAmount >= totalNetAmount
+                    ? payload.paymentMethod ?? invoice.paymentMethod ?? null
+                    : null
               }
             });
           }
@@ -470,7 +502,7 @@ export class VoucherService {
             payload.partnerId,
             isInvoiceBased ? totalApplied || normalizedAmount : normalizedAmount,
             voucher.id,
-            payload.note ?? `Cash voucher ${payload.paymentReason}`
+            resolvedNote
           );
           if (!reduced) {
             throw new AppError("Partner not found", 404, "NOT_FOUND");
@@ -731,6 +763,7 @@ export class VoucherService {
             data: {
               paymentStatus: PaymentStatus.PAID,
               paidAmount: this.decimal(totalNet, 4),
+              paymentMethod: voucher.paymentMethod ?? PaymentMethod.CASH,
               updatedBy: context.user.id
             }
           });
@@ -1578,7 +1611,8 @@ export class VoucherService {
               patchedVoucher.partnerId as string,
               applied.totals.totalNetAmount,
               "Auto receipt from immediate payment",
-              voucher.id
+              voucher.id,
+              input.options?.paymentMethod ?? null
             );
 
             await tx.voucher.update({
@@ -1586,6 +1620,7 @@ export class VoucherService {
               data: {
                 paidAmount: this.decimal(applied.totals.totalNetAmount, 4),
                 paymentStatus: this.derivePaymentStatus(applied.totals.totalNetAmount, applied.totals.totalNetAmount),
+                paymentMethod: patchedVoucher.paymentMethod ?? input.options?.paymentMethod ?? PaymentMethod.CASH,
                 updatedBy: input.context.user.id
               }
             });
@@ -2317,7 +2352,8 @@ export class VoucherService {
     partnerId: string,
     amount: number,
     description: string,
-    referenceVoucherId?: string
+    referenceVoucherId?: string,
+    paymentMethod?: PaymentMethod | null
   ): Promise<string> {
     const normalizedAmount = roundTo(amount, 4);
     if (normalizedAmount <= 0) {
@@ -2362,7 +2398,8 @@ export class VoucherService {
           type: true,
           partnerId: true,
           totalNetAmount: true,
-          paidAmount: true
+          paidAmount: true,
+          paymentMethod: true
         }
       });
 
@@ -2382,12 +2419,31 @@ export class VoucherService {
         where: { id: referenceVoucher.id },
         data: {
           paidAmount: this.decimal(nextPaidAmount, 4),
-          paymentStatus: this.derivePaymentStatus(nextPaidAmount, totalNetAmount)
+          paymentStatus: this.derivePaymentStatus(nextPaidAmount, totalNetAmount),
+          paymentMethod:
+            nextPaidAmount >= totalNetAmount
+              ? paymentMethod ?? referenceVoucher.paymentMethod ?? null
+              : null
         }
       });
     }
 
     return voucherId;
+  }
+
+  private buildCashVoucherDefaultNote(
+    isReceipt: boolean,
+    paymentReason: PaymentReason,
+    partnerName?: string | null
+  ): string {
+    const safeName = partnerName?.trim();
+    if (paymentReason === PaymentReason.CUSTOMER_PAYMENT || isReceipt) {
+      return safeName ? `Thu tiền khách hàng ${safeName}` : "Thu tiền khách hàng";
+    }
+    if (paymentReason === PaymentReason.SUPPLIER_PAYMENT) {
+      return safeName ? `Trả tiền nhà cung cấp ${safeName}` : "Trả tiền nhà cung cấp";
+    }
+    return "Thu chi khác";
   }
 
   private async buildPdfData(voucherId: string): Promise<PdfRenderOptions> {

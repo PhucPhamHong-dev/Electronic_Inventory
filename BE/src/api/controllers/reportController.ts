@@ -23,7 +23,8 @@ const queryReportSchema = z.object({
   reportType: reportTypeSchema,
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
-  partnerIds: z.array(z.string().uuid()).optional()
+  partnerIds: z.array(z.string().uuid()).optional(),
+  productIds: z.array(z.string().uuid()).optional()
 });
 
 const saveTemplateSchema = z.object({
@@ -84,7 +85,8 @@ export class ReportController {
         reportType: payload.reportType,
         fromDate: parseDateInput(payload.fromDate),
         toDate: parseDateInput(payload.toDate),
-        partnerIds: payload.partnerIds
+        partnerIds: payload.partnerIds,
+        productIds: payload.productIds
       });
 
       sendSuccess(res, traceId, maskSensitiveFields(data, user.permissions));

@@ -95,6 +95,7 @@ function getCashAccountingEntries(detail: VoucherDetail | undefined): CashAccoun
 export function CashVouchersPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<"ALL" | "CASH" | "TRANSFER">("ALL");
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [selectedVoucherId, setSelectedVoucherId] = useState<string | null>(null);
   const [selectedVoucherRowKeys, setSelectedVoucherRowKeys] = useState<string[]>([]);
@@ -177,8 +178,19 @@ export function CashVouchersPage() {
 
   const cashVouchers = useMemo(() => {
     const merged = [...(receiptQuery.data?.items ?? []), ...(paymentQuery.data?.items ?? [])];
-    return merged.sort((a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf());
-  }, [paymentQuery.data?.items, receiptQuery.data?.items]);
+    const sorted = merged.sort((a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf());
+    if (paymentMethodFilter === "ALL") {
+      return sorted;
+    }
+    return sorted.filter((item) => {
+      const isBankByReason = item.paymentReason === "BANK_WITHDRAWAL" || item.paymentReason === "BANK_DEPOSIT";
+      const isTransfer = item.paymentMethod === "TRANSFER";
+      if (paymentMethodFilter === "TRANSFER") {
+        return isTransfer || isBankByReason;
+      }
+      return !isTransfer && !isBankByReason;
+    });
+  }, [paymentMethodFilter, paymentQuery.data?.items, receiptQuery.data?.items]);
 
   useEffect(() => {
     if (!cashVouchers.length) {
@@ -611,6 +623,24 @@ export function CashVouchersPage() {
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
               />
+              <Space.Compact>
+                <Button
+                  type={paymentMethodFilter === "CASH" ? "primary" : "default"}
+                  onClick={() =>
+                    setPaymentMethodFilter((current) => (current === "CASH" ? "ALL" : "CASH"))
+                  }
+                >
+                  Tiền mặt
+                </Button>
+                <Button
+                  type={paymentMethodFilter === "TRANSFER" ? "primary" : "default"}
+                  onClick={() =>
+                    setPaymentMethodFilter((current) => (current === "TRANSFER" ? "ALL" : "TRANSFER"))
+                  }
+                >
+                  Chuyển khoản
+                </Button>
+              </Space.Compact>
               <DatePicker.RangePicker
                 allowClear
                 format="DD/MM/YYYY"

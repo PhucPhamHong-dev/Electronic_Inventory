@@ -76,6 +76,7 @@ export async function fetchPartners(params: {
   keyword?: string;
   type?: PartnerTypeValue;
   group?: PartnerGroupValue;
+  debtOnly?: boolean;
 }) {
   const response = await axiosClient.get<ApiResponse<MasterListResponse<PartnerOption>>>(API_ENDPOINTS.PARTNERS, {
     params

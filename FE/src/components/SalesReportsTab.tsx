@@ -21,6 +21,7 @@ import {
   InputNumber,
   Modal,
   Radio,
+  Select,
   Space,
   Table,
   Tag,
@@ -48,7 +49,7 @@ import { CSS } from "@dnd-kit/utilities";
 import * as XLSX from "xlsx-js-style";
 import { ImportWizardModal } from "../components/ImportWizardModal";
 import { commitImportData, validateImportData, type ImportDomain } from "../services/import.api";
-import { fetchPartners } from "../services/masterData.api";
+import { fetchPartners, fetchProducts } from "../services/masterData.api";
 import {
   exportDebtNoticeExcel,
   listReportFilters,
@@ -74,6 +75,7 @@ type FilterConfig = {
   fromDate?: string;
   toDate?: string;
   partnerIds?: string[];
+  productIds?: string[];
 };
 
 type ParameterFormValues = {
@@ -255,6 +257,7 @@ type DetailColumnKey =
   | "voucherNo"
   | "partnerCode"
   | "partnerName"
+  | "paymentStatus"
   | "note"
   | "skuCode"
   | "productName"
@@ -302,6 +305,7 @@ const DETAIL_DEFAULT_COLUMNS: Array<{ key: DetailColumnKey; title: string; width
   { key: "voucherNo", title: "Số chứng từ", width: 140 },
   { key: "partnerCode", title: "Mã khách hàng/NCC", width: 150 },
   { key: "partnerName", title: "Tên khách hàng/NCC", width: 220 },
+  { key: "paymentStatus", title: "Trạng thái thanh toán", width: 180 },
   { key: "note", title: "Diễn giải", width: 220 },
   { key: "skuCode", title: "Mã hàng", width: 130 },
   { key: "productName", title: "Tên hàng", width: 220 },
@@ -423,6 +427,7 @@ function parseFilterConfig(config: Record<string, unknown>): FilterConfig {
   const fromDate = config.fromDate;
   const toDate = config.toDate;
   const partnerIds = config.partnerIds;
+  const productIds = config.productIds;
 
   if (typeof fromDate === "string") {
     next.fromDate = fromDate;
@@ -432,6 +437,9 @@ function parseFilterConfig(config: Record<string, unknown>): FilterConfig {
   }
   if (Array.isArray(partnerIds)) {
     next.partnerIds = partnerIds.filter((item): item is string => typeof item === "string");
+  }
+  if (Array.isArray(productIds)) {
+    next.productIds = productIds.filter((item): item is string => typeof item === "string");
   }
 
   return next;
@@ -562,6 +570,9 @@ export function SalesReportsTab() {
   const [partnerKeyword, setPartnerKeyword] = useState("");
   const [tableKeyword, setTableKeyword] = useState("");
   const [selectedPartnerIds, setSelectedPartnerIds] = useState<string[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [productKeyword, setProductKeyword] = useState("");
+  const [isMultiPartnerSelect, setIsMultiPartnerSelect] = useState(true);
   const [reportData, setReportData] = useState<ReportQueryResponse | null>(null);
   const [previewVoucherId, setPreviewVoucherId] = useState<string | null>(null);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
@@ -582,11 +593,20 @@ export function SalesReportsTab() {
   const partnerGroup =
     reportType === "SO_CHI_TIET_MUA_HANG" || reportType === "TONG_HOP_CONG_NO_NCC" ? "SUPPLIER" : "CUSTOMER";
   const usesPartnerFilter = reportType !== MATERIAL_REPORT_TYPE;
+  const usesProductFilter = DETAIL_REPORT_TYPES.includes(reportType);
 
   const partnersQuery = useQuery({
     queryKey: ["report-partners", partnerGroup],
     queryFn: () => fetchPartners({ page: 1, pageSize: 200, group: partnerGroup }),
     enabled: parameterOpen && usesPartnerFilter,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false
+  });
+
+  const productsQuery = useQuery({
+    queryKey: ["report-products", productKeyword],
+    queryFn: () => fetchProducts({ page: 1, pageSize: 30, keyword: productKeyword || undefined }),
+    enabled: parameterOpen && usesProductFilter,
     staleTime: 30_000,
     refetchOnWindowFocus: false
   });
@@ -648,6 +668,9 @@ export function SalesReportsTab() {
       dateRange: [currentYearStart, dayjs().endOf("day")]
     });
     setSelectedPartnerIds([]);
+    setSelectedProductId(null);
+    setProductKeyword("");
+    setIsMultiPartnerSelect(true);
     setTableKeyword("");
     setReportData(null);
     setActiveTemplateId(null);
@@ -667,6 +690,7 @@ export function SalesReportsTab() {
     const defaultTo = dayjs().endOf("day");
     let dateRange: [Dayjs, Dayjs] = [defaultFrom, defaultTo];
     let partnerIds: string[] = [];
+    let productIds: string[] = [];
 
     const firstFilter = filtersQuery.data?.items?.[0];
     if (firstFilter) {
@@ -675,12 +699,15 @@ export function SalesReportsTab() {
         dateRange = [dayjs(config.fromDate), dayjs(config.toDate)];
       }
       partnerIds = config.partnerIds ?? [];
+      productIds = config.productIds ?? [];
     }
 
     parameterForm.setFieldsValue({
       dateRange
     });
     setSelectedPartnerIds(partnerIds);
+    setSelectedProductId(productIds[0] ?? null);
+    setIsMultiPartnerSelect(partnerIds.length !== 1);
 
     if (!autoQueryPending) {
       return;
@@ -692,7 +719,8 @@ export function SalesReportsTab() {
       reportType,
       fromDate,
       toDate,
-      partnerIds: usesPartnerFilter && partnerIds.length ? partnerIds : undefined
+      partnerIds: usesPartnerFilter && partnerIds.length ? partnerIds : undefined,
+      productIds: usesProductFilter && productIds.length ? productIds : undefined
     });
     setAutoQueryPending(false);
   }, [
@@ -739,15 +767,21 @@ export function SalesReportsTab() {
     });
   }, [partnerKeyword, partnersQuery.data?.items]);
 
-  const reportTypeTag = useMemo(() => {
+const reportTypeTag = useMemo(() => {
     if (reportType === "SO_CHI_TIET_BAN_HANG") {
       return <Tag color="blue">Bán hàng</Tag>;
     }
     if (reportType === "SO_CHI_TIET_MUA_HANG") {
       return <Tag color="purple">Mua hàng</Tag>;
     }
-    return <Tag color="orange">Công nợ</Tag>;
-  }, [reportType]);
+  return <Tag color="orange">Công nợ</Tag>;
+}, [reportType]);
+
+const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = {
+  UNPAID: "Chưa thanh toán",
+  PARTIAL: "Thanh toán",
+  PAID: "Đã thanh toán"
+};
 
   const resolvedReportTypeTag =
     reportType === MATERIAL_REPORT_TYPE ? <Tag color="geekblue">Vật tư hàng hóa</Tag> : reportTypeTag;
@@ -773,7 +807,7 @@ export function SalesReportsTab() {
       if (!keyword) {
         return true;
       }
-      return `${row.voucherNo ?? ""} ${row.partnerCode ?? ""} ${row.partnerName ?? ""} ${row.skuCode} ${row.productName} ${row.note ?? ""}`
+      return `${row.voucherNo ?? ""} ${row.partnerCode ?? ""} ${row.partnerName ?? ""} ${row.skuCode} ${row.productName} ${row.note ?? ""} ${paymentStatusLabelMap[row.paymentStatus]}`
         .toLowerCase()
         .includes(keyword);
     });
@@ -879,6 +913,14 @@ export function SalesReportsTab() {
       title: "Tên khách hàng/NCC",
       width: 220,
       render: (value: string | null) => value ?? "-"
+    },
+    paymentStatus: {
+      key: "paymentStatus",
+      dataIndex: "paymentStatus",
+      title: "Trạng thái thanh toán",
+      width: 180,
+      align: "center",
+      render: (value: ReportDetailRow["paymentStatus"]) => paymentStatusLabelMap[value] ?? value
     },
     note: {
       key: "note",
@@ -1242,12 +1284,14 @@ export function SalesReportsTab() {
     const fromDate = values.dateRange?.[0]?.startOf("day").toISOString();
     const toDate = values.dateRange?.[1]?.endOf("day").toISOString();
     const partnerIds = usesPartnerFilter && selectedPartnerIds.length ? selectedPartnerIds : undefined;
+    const productIds = usesProductFilter && selectedProductId ? [selectedProductId] : undefined;
 
     await reportQueryMutation.mutateAsync({
       reportType,
       fromDate,
       toDate,
-      partnerIds
+      partnerIds,
+      productIds
     });
 
     const existingFilter = filtersQuery.data?.items?.[0];
@@ -1259,7 +1303,8 @@ export function SalesReportsTab() {
         config: {
           fromDate,
           toDate,
-          partnerIds: usesPartnerFilter ? selectedPartnerIds : []
+          partnerIds: usesPartnerFilter ? selectedPartnerIds : [],
+          productIds: usesProductFilter && selectedProductId ? [selectedProductId] : []
         }
       });
     } catch {
@@ -1361,6 +1406,8 @@ export function SalesReportsTab() {
               return row.partnerCode ?? "";
             case "partnerName":
               return row.partnerName ?? "";
+            case "paymentStatus":
+              return paymentStatusLabelMap[row.paymentStatus] ?? row.paymentStatus;
             case "note":
               return row.note ?? "";
             case "skuCode":
@@ -1430,7 +1477,7 @@ export function SalesReportsTab() {
       "lineAmount"
     ]);
     const numberColumns = new Set<DetailColumnKey>(["quantity", "discountRate", "taxRate"]);
-    const centerColumns = new Set<DetailColumnKey>(["voucherDate", "unitName"]);
+    const centerColumns = new Set<DetailColumnKey>(["voucherDate", "unitName", "paymentStatus"]);
 
     const headerRow = 4;
     const dataStartRow = 5;
@@ -2143,7 +2190,7 @@ export function SalesReportsTab() {
 
       <div className={`sales-report-viewer ${reportData ? "sales-report-viewer-has-data" : ""}`}>
         <div className="sales-report-viewer-header">
-          <div>
+          <div className="sales-report-header-title">
             <Space align="center">
               <Typography.Title level={4} style={{ margin: 0 }}>
                 {resolveReportLabelForUI(reportType)}
@@ -2154,7 +2201,7 @@ export function SalesReportsTab() {
               {reportData ? `Cập nhật lúc ${dayjs(reportData.generatedAt).format("DD/MM/YYYY HH:mm:ss")}` : "Chưa có dữ liệu"}
             </Typography.Text>
           </div>
-          <Space wrap>
+          <Space className="sales-report-header-actions" wrap={false}>
             <Button onClick={() => setParameterOpen(true)}>Chọn tham số</Button>
             <Dropdown
               menu={{
@@ -2411,6 +2458,9 @@ export function SalesReportsTab() {
               onClick={() => {
                 parameterForm.resetFields();
                 setSelectedPartnerIds([]);
+                setSelectedProductId(null);
+                setProductKeyword("");
+                setIsMultiPartnerSelect(true);
               }}
             >
               Xóa điều kiện
@@ -2438,47 +2488,102 @@ export function SalesReportsTab() {
 
         {usesPartnerFilter ? (
           <>
+            {usesProductFilter ? (
+              <div className="sales-report-parameter-grid">
+                <Form.Item label="Tên hàng hóa">
+                  <Select
+                    showSearch
+                    allowClear
+                    placeholder="Chọn hàng hóa"
+                    value={selectedProductId ?? undefined}
+                    style={{ width: "100%" }}
+                    filterOption={false}
+                    onSearch={(value) => setProductKeyword(value)}
+                    onChange={(value) => setSelectedProductId(value ?? null)}
+                    options={(productsQuery.data?.items ?? []).map((item) => ({
+                      label: `${item.skuCode} - ${item.name}`,
+                      value: item.id
+                    }))}
+                  />
+                </Form.Item>
+              </div>
+            ) : null}
             <div className="sales-report-partner-toolbar">
-          <Space>
-            <Checkbox
-              checked={selectedPartnerIds.length > 0 && selectedPartnerIds.length === partnerDataSource.length}
-              indeterminate={selectedPartnerIds.length > 0 && selectedPartnerIds.length < partnerDataSource.length}
-              onChange={(event) => {
-                if (event.target.checked) {
-                  setSelectedPartnerIds(partnerDataSource.map((item) => item.id));
-                  return;
-                }
-                setSelectedPartnerIds([]);
-              }}
-            >
-              Chọn tất cả
-            </Checkbox>
-            <Typography.Text>{`${selectedPartnerIds.length} đối tượng được chọn`}</Typography.Text>
-          </Space>
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="Nhập từ khóa tìm kiếm"
-            style={{ width: 280 }}
-            value={partnerKeyword}
-            onChange={(event) => setPartnerKeyword(event.target.value)}
-          />
-        </div>
+              <Space>
+                <Checkbox
+                  checked={isMultiPartnerSelect}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setIsMultiPartnerSelect(next);
+                    if (!next) {
+                      setSelectedPartnerIds((prev) => (prev.length ? [prev[0]] : []));
+                    }
+                  }}
+                >
+                  Chọn nhiều khách hàng/NCC
+                </Checkbox>
+                {isMultiPartnerSelect ? (
+                  <>
+                    <Checkbox
+                      checked={selectedPartnerIds.length > 0 && selectedPartnerIds.length === partnerDataSource.length}
+                      indeterminate={selectedPartnerIds.length > 0 && selectedPartnerIds.length < partnerDataSource.length}
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          setSelectedPartnerIds(partnerDataSource.map((item) => item.id));
+                          return;
+                        }
+                        setSelectedPartnerIds([]);
+                      }}
+                    >
+                      Chọn tất cả
+                    </Checkbox>
+                    <Typography.Text>{`${selectedPartnerIds.length} đối tượng được chọn`}</Typography.Text>
+                  </>
+                ) : null}
+              </Space>
+              {isMultiPartnerSelect ? (
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  placeholder="Nhập từ khóa tìm kiếm"
+                  style={{ width: 280 }}
+                  value={partnerKeyword}
+                  onChange={(event) => setPartnerKeyword(event.target.value)}
+                />
+              ) : (
+                <Select
+                  showSearch
+                  allowClear
+                  placeholder="Chọn khách hàng/NCC"
+                  value={selectedPartnerIds[0] ?? undefined}
+                  style={{ width: 320 }}
+                  filterOption={false}
+                  onSearch={(value) => setPartnerKeyword(value)}
+                  onChange={(value) => setSelectedPartnerIds(value ? [value] : [])}
+                  options={partnerDataSource.map((item) => ({
+                    label: `${item.code} - ${item.name}`,
+                    value: item.id
+                  }))}
+                />
+              )}
+            </div>
 
-        <Table<PartnerOption>
-          rowKey="id"
-          size="small"
-          bordered
-          loading={partnersQuery.isFetching}
-          columns={partnerColumns}
-          dataSource={partnerDataSource}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
-          scroll={{ y: 320 }}
-          rowSelection={{
-            selectedRowKeys: selectedPartnerIds,
-            onChange: (keys) => setSelectedPartnerIds(keys.map(String))
-          }}
-        />
+            {isMultiPartnerSelect ? (
+              <Table<PartnerOption>
+                rowKey="id"
+                size="small"
+                bordered
+                loading={partnersQuery.isFetching}
+                columns={partnerColumns}
+                dataSource={partnerDataSource}
+                pagination={{ pageSize: 10, showSizeChanger: true }}
+                scroll={{ y: 320 }}
+                rowSelection={{
+                  selectedRowKeys: selectedPartnerIds,
+                  onChange: (keys) => setSelectedPartnerIds(keys.map(String))
+                }}
+              />
+            ) : null}
           </>
         ) : (
           <Typography.Text type="secondary">

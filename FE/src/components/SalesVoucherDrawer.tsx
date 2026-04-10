@@ -20,7 +20,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
-import { useEffect, useMemo, useState, type FocusEvent } from "react";
+import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { AppSelect } from "./common/AppSelect";
 import { PartnerModal, type PartnerFormValues } from "./PartnerModal";
 import { createPartner, createProduct, fetchPartners, fetchProducts, updatePartner } from "../services/masterData.api";
@@ -185,11 +185,12 @@ function handleInputNumberFocus(event: FocusEvent<HTMLInputElement>): void {
 function renderEditableNumberCell(
   value: number,
   onChange: (nextValue: number) => void,
-  options?: { max?: number }
+  options?: { max?: number; inputId?: string; onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void }
 ) {
   return (
     <div className="sales-voucher-number-editor">
       <InputNumber
+        id={options?.inputId}
         value={value}
         min={0}
         max={options?.max}
@@ -198,6 +199,7 @@ function renderEditableNumberCell(
         formatter={formatInputNumberValue}
         parser={parseInputNumberValue}
         onFocus={handleInputNumberFocus}
+        onKeyDown={options?.onKeyDown}
         onChange={(nextValue) => onChange(Number(nextValue ?? 0))}
       />
     </div>
@@ -257,6 +259,67 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         { label: "Chưa thu tiền", value: "UNPAID" },
         { label: "Thu tiền ngay", value: "IMMEDIATE" }
       ];
+  const editableColumnKeys = ["quantity", "unitPrice", "discountRate", "taxRate"] as const;
+  type EditableColumnKey = (typeof editableColumnKeys)[number];
+
+  const buildCellId = (rowKey: string, columnKey: EditableColumnKey) => `voucher-cell-${rowKey}-${columnKey}`;
+
+  const focusCell = (rowIndex: number, columnKey: EditableColumnKey) => {
+    const row = rows[rowIndex];
+    if (!row || row.rowType === "NOTE") {
+      return;
+    }
+    const target = document.getElementById(buildCellId(row.key, columnKey)) as HTMLInputElement | null;
+    if (target) {
+      target.focus();
+      target.select?.();
+    }
+  };
+
+  const findAdjacentItemRow = (startIndex: number, direction: -1 | 1) => {
+    let nextIndex = startIndex + direction;
+    while (nextIndex >= 0 && nextIndex < rows.length) {
+      if (rows[nextIndex]?.rowType === "ITEM") {
+        return nextIndex;
+      }
+      nextIndex += direction;
+    }
+    return -1;
+  };
+
+  const handleCellKeyDown = (rowIndex: number, columnKey: EditableColumnKey) => (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const nextIndex = findAdjacentItemRow(rowIndex, -1);
+      if (nextIndex >= 0) {
+        focusCell(nextIndex, columnKey);
+      }
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const nextIndex = findAdjacentItemRow(rowIndex, 1);
+      if (nextIndex >= 0) {
+        focusCell(nextIndex, columnKey);
+      }
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      const currentIndex = editableColumnKeys.indexOf(columnKey);
+      if (currentIndex > 0) {
+        focusCell(rowIndex, editableColumnKeys[currentIndex - 1]);
+      }
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      const currentIndex = editableColumnKeys.indexOf(columnKey);
+      if (currentIndex >= 0 && currentIndex < editableColumnKeys.length - 1) {
+        focusCell(rowIndex, editableColumnKeys[currentIndex + 1]);
+      }
+    }
+  };
 
   const partnersQuery = useQuery({
     queryKey: [mode, "voucher-drawer-partners"],
@@ -719,14 +782,17 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       key: "quantity",
       width: 110,
       align: "right",
-      render: (value: number, record) => {
+      render: (value: number, record, rowIndex) => {
         if (record.rowType === "NOTE") {
           return "-";
         }
         const stockAlert = stockAlerts[record.key];
         return (
           <div>
-            {renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { quantity: nextValue }))}
+            {renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { quantity: nextValue }), {
+              inputId: buildCellId(record.key, "quantity"),
+              onKeyDown: handleCellKeyDown(rowIndex, "quantity")
+            })}
             {stockAlert?.exceedsStock ? (
               <Typography.Text className={allowNegativeStock ? "stock-warning-text" : "stock-error-text"}>
                 {allowNegativeStock
@@ -744,8 +810,13 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       key: "unitPrice",
       width: 128,
       align: "right",
-      render: (value: number, record) =>
-        record.rowType === "NOTE" ? "-" : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { unitPrice: nextValue }))
+      render: (value: number, record, rowIndex) =>
+        record.rowType === "NOTE"
+          ? "-"
+          : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { unitPrice: nextValue }), {
+              inputId: buildCellId(record.key, "unitPrice"),
+              onKeyDown: handleCellKeyDown(rowIndex, "unitPrice")
+            })
     },
     {
       title: "% Chiết khấu",
@@ -753,8 +824,18 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       key: "discountRate",
       width: 108,
       align: "right",
-      render: (value: number, record) =>
-        record.rowType === "NOTE" ? "-" : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { discountRate: nextValue }), { max: 100 })
+      render: (value: number, record, rowIndex) =>
+        record.rowType === "NOTE"
+          ? "-"
+          : renderEditableNumberCell(
+              value,
+              (nextValue) => updateRow(record.key, { discountRate: nextValue }),
+              {
+                max: 100,
+                inputId: buildCellId(record.key, "discountRate"),
+                onKeyDown: handleCellKeyDown(rowIndex, "discountRate")
+              }
+            )
     },
     {
       title: "Đơn giá sau CK",
@@ -775,8 +856,18 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       key: "taxRate",
       width: 108,
       align: "right",
-      render: (value: number, record) =>
-        record.rowType === "NOTE" ? "-" : renderEditableNumberCell(value, (nextValue) => updateRow(record.key, { taxRate: nextValue }), { max: 100 })
+      render: (value: number, record, rowIndex) =>
+        record.rowType === "NOTE"
+          ? "-"
+          : renderEditableNumberCell(
+              value,
+              (nextValue) => updateRow(record.key, { taxRate: nextValue }),
+              {
+                max: 100,
+                inputId: buildCellId(record.key, "taxRate"),
+                onKeyDown: handleCellKeyDown(rowIndex, "taxRate")
+              }
+            )
     },
     {
       title: "Thành tiền",

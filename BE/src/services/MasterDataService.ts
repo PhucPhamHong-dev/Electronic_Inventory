@@ -868,6 +868,7 @@ export class MasterDataService {
     const where = {
       deletedAt: null,
       partnerType: partnerTypeIn ? { in: partnerTypeIn } : undefined,
+      currentDebt: input.debtOnly ? { gt: 0 } : undefined,
       OR: keyword
         ? [
             { code: { contains: keyword, mode: "insensitive" as const } },

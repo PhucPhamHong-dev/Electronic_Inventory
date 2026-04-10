@@ -452,7 +452,9 @@ export function SalesDashboardPage() {
         key: "totalAmount",
         align: "right",
         width: 165,
-        render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
+        render: (_value: number, record) => (
+          <Typography.Text strong>{formatCurrency(record.totalNetAmount - record.totalTaxAmount)}</Typography.Text>
+        )
       },
       {
         title: "Tiền thuế GTGT",
@@ -463,12 +465,21 @@ export function SalesDashboardPage() {
         render: (value: number) => <Typography.Text>{formatCurrency(value)}</Typography.Text>
       },
       {
+        title: "Tổng thanh toán",
+        dataIndex: "totalNetAmount",
+        key: "totalNetAmount",
+        align: "right",
+        width: 170,
+        render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
+      },
+      {
         title: "PTTT",
         dataIndex: "paymentMethod",
         key: "paymentMethod",
         align: "center",
         width: 120,
-        render: (value: VoucherHistoryItem["paymentMethod"]) => mapPaymentMethodLabel(value)
+        render: (value: VoucherHistoryItem["paymentMethod"], record) =>
+          record.paymentStatus === "PAID" ? mapPaymentMethodLabel(value) : ""
       },
       {
         title: "Thanh toán",
@@ -726,7 +737,7 @@ export function SalesDashboardPage() {
     const summary = vouchersQuery.data?.summary;
     return {
       totalCount: vouchersQuery.data?.items.length ?? 0,
-      totalAmount: summary?.totalAmount ?? 0,
+      totalAmount: summary ? summary.totalNetAmount - summary.totalTaxAmount : 0,
       totalTaxAmount: summary?.totalTaxAmount ?? 0,
       totalNetAmount: summary?.totalNetAmount ?? 0
     };
@@ -794,11 +805,11 @@ export function SalesDashboardPage() {
           dayjs(item.voucherDate).format("DD/MM/YYYY"),
           item.voucherNo ?? item.id.slice(0, 8),
           item.partnerName ?? "",
-          item.totalAmount,
+          item.totalNetAmount - item.totalTaxAmount,
           item.totalTaxAmount,
           item.totalNetAmount,
           paymentStatusMeta[item.paymentStatus].label,
-          mapPaymentMethodLabel(item.paymentMethod),
+          item.paymentStatus === "PAID" ? mapPaymentMethodLabel(item.paymentMethod) : "",
           item.note ?? ""
         ])
       ];
@@ -938,40 +949,13 @@ export function SalesDashboardPage() {
               rowClassName={(record) => (record.id === selectedVoucherId ? "sales-master-active-row" : "")}
               summary={() => (
                 <Table.Summary.Row>
-                  <Table.Summary.Cell index={0} colSpan={3} align="right">
-                    <Space size={8}>
-                      <Typography.Text strong>Tổng cộng</Typography.Text>
-                      <Typography.Text type="secondary">{`${salesSummary.totalCount} phiếu`}</Typography.Text>
-                    </Space>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={1} align="right">
-                    <Typography.Text strong>{formatCurrency(salesSummary.totalAmount)}</Typography.Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={2} align="right">
-                    <Typography.Text>{formatCurrency(salesSummary.totalTaxAmount)}</Typography.Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={3} colSpan={3} align="right">
+                  <Table.Summary.Cell index={0} colSpan={9} align="right">
                     <Typography.Text strong className="sales-summary-net">
                       {`Tổng thanh toán: ${formatCurrency(salesSummary.totalNetAmount)}`}
                     </Typography.Text>
                   </Table.Summary.Cell>
                 </Table.Summary.Row>
               )}
-            />
-          </div>
-
-          <div className="sales-detail-pane">
-            <Typography.Text strong>Chi tiết chứng từ: {voucherDetailQuery.data?.voucherNo ?? "-"}</Typography.Text>
-            <Table<VoucherDetail["items"][number]>
-              rowKey="id"
-              bordered
-              size="small"
-              style={{ marginTop: 8 }}
-              loading={voucherDetailQuery.isFetching}
-              columns={salesDetailColumns}
-              dataSource={voucherDetailQuery.data?.items ?? []}
-              pagination={false}
-              scroll={{ y: 220 }}
             />
           </div>
         </div>

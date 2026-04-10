@@ -2187,6 +2187,21 @@ body,
   gap: 12px;
 }
 
+.sales-report-header-title {
+  min-width: 0;
+}
+
+.sales-report-header-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.sales-report-header-actions > .ant-space-item {
+  flex: 0 0 auto;
+}
+
 .sales-report-grid-wrap {
   padding: 12px;
 }
