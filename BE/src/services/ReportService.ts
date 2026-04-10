@@ -1,5 +1,6 @@
 import {
   PartnerType,
+  PaymentStatus,
   Prisma,
   ReportType,
   VoucherStatus,

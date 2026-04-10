@@ -707,6 +707,7 @@ export class VoucherService {
         type: true,
         status: true,
         paymentStatus: true,
+        paymentMethod: true,
         partnerId: true,
         voucherDate: true,
         totalNetAmount: true,
