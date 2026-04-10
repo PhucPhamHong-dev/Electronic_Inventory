@@ -137,7 +137,10 @@ model User {
 
   createdVouchers Voucher[]        @relation("VoucherCreatedBy")
   updatedVouchers Voucher[]        @relation("VoucherUpdatedBy")
-  quotations      Quotation[]
+  deletedVouchers Voucher[]        @relation("VoucherDeletedBy")
+  createdQuotations Quotation[]    @relation("QuotationCreatedBy")
+  updatedQuotations Quotation[]    @relation("QuotationUpdatedBy")
+  deletedQuotations Quotation[]    @relation("QuotationDeletedBy")
   auditLogs       AuditLog[]
   reportTemplates ReportTemplate[] @relation("ReportTemplateCreator")
   reportFilters   ReportFilter[]   @relation("ReportFilterCreator")
@@ -249,6 +252,7 @@ model Voucher {
   updatedBy           String?        @map("updated_by") @db.Uuid
   lastEditedBy        String?        @map("last_edited_by") @db.Uuid
   lastEditedAt        DateTime?      @map("last_edited_at") @db.Timestamptz(6)
+  deletedBy           String?        @map("deleted_by") @db.Uuid
   quotationId         String?        @map("quotation_id") @db.Uuid
   deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz(6)
   createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -257,6 +261,7 @@ model Voucher {
   partner              Partner?            @relation(fields: [partnerId], references: [id])
   creator              User?               @relation("VoucherCreatedBy", fields: [createdBy], references: [id])
   updater              User?               @relation("VoucherUpdatedBy", fields: [updatedBy], references: [id])
+  deleter              User?               @relation("VoucherDeletedBy", fields: [deletedBy], references: [id])
   quotation            Quotation?          @relation(fields: [quotationId], references: [id])
   originalVoucher      Voucher?            @relation("SalesReturnOriginalVoucher", fields: [originalVoucherId], references: [id])
   returnChildren       Voucher[]           @relation("SalesReturnOriginalVoucher")
@@ -325,11 +330,18 @@ model Quotation {
   notes          String?
   status         QuotationStatus @default(PENDING)
   createdBy      String?         @map("created_by") @db.Uuid
+  updatedBy      String?         @map("updated_by") @db.Uuid
+  lastEditedBy   String?         @map("last_edited_by") @db.Uuid
+  lastEditedAt   DateTime?       @map("last_edited_at") @db.Timestamptz(6)
+  deletedBy      String?         @map("deleted_by") @db.Uuid
+  deletedAt      DateTime?       @map("deleted_at") @db.Timestamptz(6)
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   partner  Partner           @relation(fields: [partnerId], references: [id])
-  creator  User?             @relation(fields: [createdBy], references: [id])
+  creator  User?             @relation("QuotationCreatedBy", fields: [createdBy], references: [id])
+  updater  User?             @relation("QuotationUpdatedBy", fields: [updatedBy], references: [id])
+  deleter  User?             @relation("QuotationDeletedBy", fields: [deletedBy], references: [id])
   details  QuotationDetail[]
   vouchers Voucher[]
 

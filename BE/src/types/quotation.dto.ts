@@ -46,6 +46,7 @@ export interface QuotationListItemDto {
   status: QuotationStatusValue;
   createdAt: Date;
   createdBy: string | null;
+  createdByName?: string | null;
 }
 
 export interface QuotationDetailDto {
@@ -61,6 +62,7 @@ export interface QuotationDetailDto {
   status: QuotationStatusValue;
   createdAt: Date;
   createdBy: string | null;
+  createdByName?: string | null;
   items: Array<{
     id: string;
     productId: string;

@@ -94,6 +94,7 @@ export interface ReportDetailRow {
   partnerName: string | null;
   paymentStatus: PaymentStatus;
   note: string | null;
+  createdByName: string | null;
   productId: string;
   skuCode: string;
   productName: string;
@@ -118,6 +119,7 @@ export interface DebtSummaryRow {
   creditInPeriod: number;
   closingBalance: number;
   currentDebt: number;
+  createdByName: string | null;
 }
 
 export interface InventoryMaterialRow {
@@ -131,6 +133,7 @@ export interface InventoryMaterialRow {
   voucherNo: string | null;
   voucherDate: Date | null;
   note: string | null;
+  createdByName: string | null;
   unitCost: number;
   quantityIn: number;
   valueIn: number;
@@ -396,24 +399,31 @@ export class ReportService {
         voucherDate: voucherDateFilter,
         items: productFilter ? { some: { productId: productFilter } } : undefined
       },
-      select: {
-        id: true,
-        voucherNo: true,
-        voucherDate: true,
-        note: true,
-        paymentStatus: true,
-        partnerId: true,
-        partner: {
-          select: {
-            code: true,
-            name: true
-          }
-        },
-        items: {
-          where: productFilter ? { productId: productFilter } : undefined,
-          select: {
-            id: true,
-            productId: true,
+        select: {
+          id: true,
+          voucherNo: true,
+          voucherDate: true,
+          note: true,
+          paymentStatus: true,
+          createdBy: true,
+          partnerId: true,
+          partner: {
+            select: {
+              code: true,
+              name: true
+            }
+          },
+          creator: {
+            select: {
+              fullName: true,
+              username: true
+            }
+          },
+          items: {
+            where: productFilter ? { productId: productFilter } : undefined,
+            select: {
+              id: true,
+              productId: true,
             quantity: true,
             unitPrice: true,
             discountRate: true,
@@ -434,27 +444,29 @@ export class ReportService {
       orderBy: [{ voucherDate: "asc" }, { createdAt: "asc" }]
     });
 
-    const rows: ReportDetailRow[] = vouchers.flatMap((voucher) => {
-      const partnerName = voucher.partner?.name ?? null;
-      const trimmedNote = (voucher.note ?? "").trim();
-      const note =
-        trimmedNote ||
-        (voucherType === VoucherType.SALES && partnerName ? `Kho bán hàng cho chính ${partnerName}` : null);
+      const rows: ReportDetailRow[] = vouchers.flatMap((voucher) => {
+        const partnerName = voucher.partner?.name ?? null;
+        const trimmedNote = (voucher.note ?? "").trim();
+        const note =
+          trimmedNote ||
+          (voucherType === VoucherType.SALES && partnerName ? `Kho bán hàng cho chính ${partnerName}` : null);
+        const createdByName = voucher.creator ? voucher.creator.fullName ?? voucher.creator.username : null;
 
-      return voucher.items.map((item) => ({
-        key: item.id,
-        voucherId: voucher.id,
-        voucherNo: voucher.voucherNo,
-        voucherDate: voucher.voucherDate,
-        partnerId: voucher.partnerId,
-        partnerCode: voucher.partner?.code ?? null,
-        partnerName,
-        paymentStatus: voucher.paymentStatus,
-        note,
-        productId: item.productId,
-        skuCode: item.product.skuCode,
-        productName: item.product.name,
-        unitName: item.product.unitName,
+        return voucher.items.map((item) => ({
+          key: item.id,
+          voucherId: voucher.id,
+          voucherNo: voucher.voucherNo,
+          voucherDate: voucher.voucherDate,
+          partnerId: voucher.partnerId,
+          partnerCode: voucher.partner?.code ?? null,
+          partnerName,
+          paymentStatus: voucher.paymentStatus,
+          note,
+          createdByName,
+          productId: item.productId,
+          skuCode: item.product.skuCode,
+          productName: item.product.name,
+          unitName: item.product.unitName,
         quantity: toNumber(item.quantity),
         unitPrice: toNumber(item.unitPrice),
         grossAmount: Number((toNumber(item.quantity) * toNumber(item.unitPrice)).toFixed(4)),
@@ -530,13 +542,19 @@ export class ReportService {
             warehouseName: true
           }
         },
-        voucher: {
-          select: {
-            voucherNo: true,
-            voucherDate: true,
-            note: true
+          voucher: {
+            select: {
+              voucherNo: true,
+              voucherDate: true,
+              note: true,
+              creator: {
+                select: {
+                  fullName: true,
+                  username: true
+                }
+              }
+            }
           }
-        }
       },
       orderBy: [
         { product: { warehouseName: "asc" } },
@@ -550,7 +568,7 @@ export class ReportService {
     const runningValueByProduct = new Map<string, number>();
     const lastStockByProduct = new Map<string, { quantityAfter: number; valueAfter: number }>();
 
-    const rows: InventoryMaterialRow[] = movements.map((movement) => {
+      const rows: InventoryMaterialRow[] = movements.map((movement) => {
       const quantityChange = toNumber(movement.quantityChange);
       const rawValueChange = toNumber(movement.totalCost);
 
@@ -570,19 +588,22 @@ export class ReportService {
         valueAfter
       });
 
-      return {
-        key: movement.id,
-        warehouseName: movement.product.warehouseName ?? "Kho mặc định",
-        productId: movement.productId,
-        skuCode: movement.product.skuCode,
-        productName: movement.product.name,
-        unitName: movement.product.unitName,
-        voucherId: movement.voucherId,
-        voucherNo: movement.voucher.voucherNo,
-        voucherDate: movement.voucher.voucherDate,
-        note: movement.voucher.note,
-        unitCost: Number(toNumber(movement.unitCost).toFixed(4)),
-        quantityIn: Number(quantityIn.toFixed(4)),
+        return {
+          key: movement.id,
+          warehouseName: movement.product.warehouseName ?? "Kho mặc định",
+          productId: movement.productId,
+          skuCode: movement.product.skuCode,
+          productName: movement.product.name,
+          unitName: movement.product.unitName,
+          voucherId: movement.voucherId,
+          voucherNo: movement.voucher.voucherNo,
+          voucherDate: movement.voucher.voucherDate,
+          note: movement.voucher.note,
+          createdByName: movement.voucher.creator
+            ? movement.voucher.creator.fullName ?? movement.voucher.creator.username
+            : null,
+          unitCost: Number(toNumber(movement.unitCost).toFixed(4)),
+          quantityIn: Number(quantityIn.toFixed(4)),
         valueIn: Number(valueIn.toFixed(4)),
         quantityOut: Number(quantityOut.toFixed(4)),
         valueOut: Number(valueOut.toFixed(4)),
@@ -752,17 +773,18 @@ export class ReportService {
         const creditInPeriod = periodMap.get(partnerId)?.credit ?? 0;
         const closingBalance = openingBalance + debitInPeriod - creditInPeriod;
 
-        return {
-          key: partner.id,
-          partnerId: partner.id,
-          partnerCode: partner.code,
-          partnerName: partner.name,
-          openingBalance: Number(openingBalance.toFixed(4)),
-          debitInPeriod: Number(debitInPeriod.toFixed(4)),
-          creditInPeriod: Number(creditInPeriod.toFixed(4)),
-          closingBalance: Number(closingBalance.toFixed(4)),
-          currentDebt: Number(toNumber(partner.currentDebt).toFixed(4))
-        };
+          return {
+            key: partner.id,
+            partnerId: partner.id,
+            partnerCode: partner.code,
+            partnerName: partner.name,
+            openingBalance: Number(openingBalance.toFixed(4)),
+            debitInPeriod: Number(debitInPeriod.toFixed(4)),
+            creditInPeriod: Number(creditInPeriod.toFixed(4)),
+            closingBalance: Number(closingBalance.toFixed(4)),
+            currentDebt: Number(toNumber(partner.currentDebt).toFixed(4)),
+            createdByName: null
+          };
       })
       .filter((row): row is DebtSummaryRow => Boolean(row))
       .filter((row) =>

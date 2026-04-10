@@ -106,22 +106,24 @@ interface ListUnpaidInvoicesInput {
   type: "SALES" | "PURCHASE";
 }
 
-interface VoucherHistoryItem {
-  id: string;
-  voucherNo: string | null;
-  type: VoucherType;
-  status: VoucherStatus;
-  paymentStatus: PaymentStatus;
-  paymentMethod: PaymentMethod | null;
-  partnerId: string | null;
-  partnerName: string | null;
-  voucherDate: Date;
-  createdAt: Date;
-  totalAmount: number;
-  totalTaxAmount: number;
-  totalNetAmount: number;
-  paidAmount: number;
-  note: string | null;
+  interface VoucherHistoryItem {
+    id: string;
+    voucherNo: string | null;
+    type: VoucherType;
+    status: VoucherStatus;
+    paymentStatus: PaymentStatus;
+    paymentMethod: PaymentMethod | null;
+    partnerId: string | null;
+    partnerName: string | null;
+    voucherDate: Date;
+    createdAt: Date;
+    createdBy: string | null;
+    createdByName: string | null;
+    totalAmount: number;
+    totalTaxAmount: number;
+    totalNetAmount: number;
+    paidAmount: number;
+    note: string | null;
   lastEditedBy: string | null;
   lastEditedByName: string | null;
   lastEditedAt: Date | null;
@@ -1112,13 +1114,16 @@ export class VoucherService {
           tx.arLedger.deleteMany({ where: { voucherId } })
         ]);
 
-        await tx.voucher.update({
-          where: { id: voucherId },
-          data: {
-            deletedAt: new Date(),
-            updatedBy: context.user.id
-          }
-        });
+          await tx.voucher.update({
+            where: { id: voucherId },
+            data: {
+              deletedAt: new Date(),
+              deletedBy: context.user.id,
+              updatedBy: context.user.id,
+              lastEditedBy: context.user.id,
+              lastEditedAt: new Date()
+            }
+          });
 
         await tx.auditLog.create({
           data: {
@@ -1191,30 +1196,37 @@ export class VoucherService {
     const [items, total] = await Promise.all([
       this.db.voucher.findMany({
         where,
-        select: {
-          id: true,
-          voucherNo: true,
-          type: true,
-          status: true,
-          paymentStatus: true,
-          paymentMethod: true,
-          paymentReason: true,
-          partnerId: true,
-          voucherDate: true,
-          createdAt: true,
-          totalAmount: true,
-          totalTaxAmount: true,
-          totalNetAmount: true,
-          paidAmount: true,
-          note: true,
-          lastEditedBy: true,
-          lastEditedAt: true,
-          partner: {
-            select: {
-              name: true
+          select: {
+            id: true,
+            voucherNo: true,
+            type: true,
+            status: true,
+            paymentStatus: true,
+            paymentMethod: true,
+            paymentReason: true,
+            partnerId: true,
+            voucherDate: true,
+            createdAt: true,
+            createdBy: true,
+            totalAmount: true,
+            totalTaxAmount: true,
+            totalNetAmount: true,
+            paidAmount: true,
+            note: true,
+            lastEditedBy: true,
+            lastEditedAt: true,
+            partner: {
+              select: {
+                name: true
+              }
+            },
+            creator: {
+              select: {
+                fullName: true,
+                username: true
+              }
             }
-          }
-        },
+          },
         orderBy: {
           createdAt: "desc"
         },
@@ -1238,23 +1250,25 @@ export class VoucherService {
         })
       : [];
     const editedByMap = new Map(editedByUsers.map((item) => [item.id, item.fullName ?? item.username]));
-    const mappedItems = items.map((item) => ({
-      id: item.id,
-      voucherNo: item.voucherNo,
-      type: item.type,
-      status: item.status,
-      paymentStatus: item.paymentStatus,
-      paymentMethod: item.paymentMethod,
-      paymentReason: item.paymentReason,
-      partnerId: item.partnerId,
-      partnerName: item.partner?.name ?? null,
-      voucherDate: item.voucherDate,
-      createdAt: item.createdAt,
-      totalAmount: this.toNumber(item.totalAmount),
-      totalTaxAmount: this.toNumber(item.totalTaxAmount),
-      totalNetAmount: this.toNumber(item.totalNetAmount),
-      paidAmount: this.toNumber(item.paidAmount),
-      note: item.note,
+      const mappedItems = items.map((item) => ({
+        id: item.id,
+        voucherNo: item.voucherNo,
+        type: item.type,
+        status: item.status,
+        paymentStatus: item.paymentStatus,
+        paymentMethod: item.paymentMethod,
+        paymentReason: item.paymentReason,
+        partnerId: item.partnerId,
+        partnerName: item.partner?.name ?? null,
+        voucherDate: item.voucherDate,
+        createdAt: item.createdAt,
+        createdBy: item.createdBy,
+        createdByName: item.creator ? item.creator.fullName ?? item.creator.username : null,
+        totalAmount: this.toNumber(item.totalAmount),
+        totalTaxAmount: this.toNumber(item.totalTaxAmount),
+        totalNetAmount: this.toNumber(item.totalNetAmount),
+        paidAmount: this.toNumber(item.paidAmount),
+        note: item.note,
       lastEditedBy: item.lastEditedBy,
       lastEditedByName: item.lastEditedBy ? editedByMap.get(item.lastEditedBy) ?? null : null,
       lastEditedAt: item.lastEditedAt

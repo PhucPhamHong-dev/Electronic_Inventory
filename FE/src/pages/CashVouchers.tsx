@@ -393,6 +393,14 @@ export function CashVouchersPage() {
       key: "paymentReason",
       width: 190,
       render: (value: VoucherHistoryItem["paymentReason"]) => (value ? paymentReasonLabelMap[value] : "-")
+    },
+    {
+      title: "Người tạo",
+      dataIndex: "createdByName",
+      key: "createdByName",
+      width: 160,
+      ellipsis: true,
+      render: (value: string | null) => value ?? "-"
     }
   ];
 

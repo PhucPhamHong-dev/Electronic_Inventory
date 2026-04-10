@@ -262,6 +262,14 @@ export function PurchaseDashboardPage() {
         }
       },
       {
+        title: "Người tạo",
+        dataIndex: "createdByName",
+        key: "createdByName",
+        width: 160,
+        ellipsis: true,
+        render: (value: string | null) => value ?? "-"
+      },
+      {
         title: "Hành động",
         key: "actions",
         align: "center",

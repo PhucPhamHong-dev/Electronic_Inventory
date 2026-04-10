@@ -152,6 +152,7 @@ export interface VoucherHistoryItem {
   partnerName: string | null;
   voucherDate: string;
   createdAt: string;
+  createdByName?: string | null;
   totalAmount: number;
   totalTaxAmount: number;
   totalNetAmount: number;
@@ -257,6 +258,7 @@ export interface QuotationSummary {
   status: QuotationStatus;
   createdAt: string;
   createdBy: string | null;
+  createdByName?: string | null;
 }
 
 export interface QuotationDetail {
@@ -272,6 +274,7 @@ export interface QuotationDetail {
   status: QuotationStatus;
   createdAt: string;
   createdBy: string | null;
+  createdByName?: string | null;
   items: QuotationItem[];
 }
 

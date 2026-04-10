@@ -64,6 +64,7 @@ export class QuotationService {
     const keyword = input.search?.trim();
 
     const where: Prisma.QuotationWhereInput = {
+      deletedAt: null,
       status: input.status as PrismaQuotationStatus | undefined,
       partnerId: input.partnerId,
       createdAt:
@@ -94,26 +95,32 @@ export class QuotationService {
     };
 
     const [items, total] = await Promise.all([
-      this.db.quotation.findMany({
-        where,
-        select: {
-          id: true,
-          quotationNo: true,
-          partnerId: true,
-          totalAmount: true,
-          totalDiscount: true,
-          totalTax: true,
-          totalNetAmount: true,
-          notes: true,
-          status: true,
-          createdAt: true,
-          createdBy: true,
-          partner: {
-            select: {
-              name: true
+        this.db.quotation.findMany({
+          where,
+          select: {
+            id: true,
+            quotationNo: true,
+            partnerId: true,
+            totalAmount: true,
+            totalDiscount: true,
+            totalTax: true,
+            totalNetAmount: true,
+            notes: true,
+            status: true,
+            createdAt: true,
+            createdBy: true,
+            partner: {
+              select: {
+                name: true
+              }
+            },
+            creator: {
+              select: {
+                fullName: true,
+                username: true
+              }
             }
-          }
-        },
+          },
         orderBy: {
           createdAt: "desc"
         },
@@ -124,33 +131,40 @@ export class QuotationService {
     ]);
 
     return {
-      items: items.map((item) => ({
-        id: item.id,
-        quotationNo: item.quotationNo,
-        partnerId: item.partnerId,
-        partnerName: item.partner.name,
-        totalAmount: this.toNumber(item.totalAmount),
-        totalDiscount: this.toNumber(item.totalDiscount),
-        totalTax: this.toNumber(item.totalTax),
-        totalNetAmount: this.toNumber(item.totalNetAmount),
-        notes: item.notes,
-        status: item.status,
-        createdAt: item.createdAt,
-        createdBy: item.createdBy
-      })),
-      total
-    };
+        items: items.map((item) => ({
+          id: item.id,
+          quotationNo: item.quotationNo,
+          partnerId: item.partnerId,
+          partnerName: item.partner.name,
+          totalAmount: this.toNumber(item.totalAmount),
+          totalDiscount: this.toNumber(item.totalDiscount),
+          totalTax: this.toNumber(item.totalTax),
+          totalNetAmount: this.toNumber(item.totalNetAmount),
+          notes: item.notes,
+          status: item.status,
+          createdAt: item.createdAt,
+          createdBy: item.createdBy,
+          createdByName: item.creator ? item.creator.fullName ?? item.creator.username : null
+        })),
+        total
+      };
   }
 
   async getQuotationById(quotationId: string): Promise<QuotationDetailDto> {
-    const quotation = await this.db.quotation.findFirst({
-      where: { id: quotationId },
-      include: {
-        partner: {
-          select: {
-            name: true
-          }
-        },
+      const quotation = await this.db.quotation.findFirst({
+        where: { id: quotationId, deletedAt: null },
+        include: {
+          creator: {
+            select: {
+              fullName: true,
+              username: true
+            }
+          },
+          partner: {
+            select: {
+              name: true
+            }
+          },
         details: {
           include: {
             product: {
@@ -181,10 +195,11 @@ export class QuotationService {
       totalTax: this.toNumber(quotation.totalTax),
       totalNetAmount: this.toNumber(quotation.totalNetAmount),
       notes: quotation.notes,
-      status: quotation.status,
-      createdAt: quotation.createdAt,
-      createdBy: quotation.createdBy,
-      items: quotation.details.map((item) => ({
+        status: quotation.status,
+        createdAt: quotation.createdAt,
+        createdBy: quotation.createdBy,
+        createdByName: quotation.creator ? quotation.creator.fullName ?? quotation.creator.username : null,
+        items: quotation.details.map((item) => ({
         id: item.id,
         productId: item.productId,
         productName: item.product.name,
@@ -216,19 +231,22 @@ export class QuotationService {
             const totals = this.computeTotals(computed);
             const quotationNo = await this.generateQuotationNo(tx);
 
-            return tx.quotation.create({
-              data: {
-                quotationNo,
-                partnerId: payload.partnerId,
-                totalAmount: this.decimal(totals.totalAmount, 4),
-                totalDiscount: this.decimal(totals.totalDiscount, 4),
-                totalTax: this.decimal(totals.totalTax, 4),
-                totalNetAmount: this.decimal(totals.totalNetAmount, 4),
-                notes: this.normalizeNullableText(payload.notes),
-                status: payload.status ?? QuotationStatus.PENDING,
-                createdBy: context.user.id,
-                details: {
-                  create: computed.map((line) => ({
+              return tx.quotation.create({
+                data: {
+                  quotationNo,
+                  partnerId: payload.partnerId,
+                  totalAmount: this.decimal(totals.totalAmount, 4),
+                  totalDiscount: this.decimal(totals.totalDiscount, 4),
+                  totalTax: this.decimal(totals.totalTax, 4),
+                  totalNetAmount: this.decimal(totals.totalNetAmount, 4),
+                  notes: this.normalizeNullableText(payload.notes),
+                  status: payload.status ?? QuotationStatus.PENDING,
+                  createdBy: context.user.id,
+                  updatedBy: context.user.id,
+                  lastEditedBy: context.user.id,
+                  lastEditedAt: new Date(),
+                  details: {
+                    create: computed.map((line) => ({
                     productId: line.productId,
                     unitId: line.unitId,
                     quantity: this.decimal(line.quantity, 3),
@@ -268,8 +286,8 @@ export class QuotationService {
   ): Promise<QuotationDetailDto> {
     requirePermission(context.user.permissions.create_sales_voucher, SALES_PERMISSION);
 
-    const existing = await this.db.quotation.findFirst({
-      where: { id: quotationId },
+      const existing = await this.db.quotation.findFirst({
+        where: { id: quotationId, deletedAt: null },
       include: {
         details: true,
         vouchers: {
@@ -314,18 +332,21 @@ export class QuotationService {
           shouldReplaceDetails = true;
         }
 
-        await tx.quotation.update({
-          where: { id: quotationId },
-          data: {
-            partnerId: payload.partnerId ?? existing.partnerId,
-            notes: payload.notes !== undefined ? this.normalizeNullableText(payload.notes) : existing.notes,
-            status: payload.status ?? existing.status,
-            totalAmount: this.decimal(totals.totalAmount, 4),
-            totalDiscount: this.decimal(totals.totalDiscount, 4),
-            totalTax: this.decimal(totals.totalTax, 4),
-            totalNetAmount: this.decimal(totals.totalNetAmount, 4)
-          }
-        });
+          await tx.quotation.update({
+            where: { id: quotationId },
+            data: {
+              partnerId: payload.partnerId ?? existing.partnerId,
+              notes: payload.notes !== undefined ? this.normalizeNullableText(payload.notes) : existing.notes,
+              status: payload.status ?? existing.status,
+              totalAmount: this.decimal(totals.totalAmount, 4),
+              totalDiscount: this.decimal(totals.totalDiscount, 4),
+              totalTax: this.decimal(totals.totalTax, 4),
+              totalNetAmount: this.decimal(totals.totalNetAmount, 4),
+              updatedBy: context.user.id,
+              lastEditedBy: context.user.id,
+              lastEditedAt: new Date()
+            }
+          });
 
         if (shouldReplaceDetails) {
           await tx.quotationDetail.deleteMany({
@@ -357,8 +378,8 @@ export class QuotationService {
   async deleteQuotation(quotationId: string, context: ServiceContext): Promise<{ id: string; status: QuotationStatus }> {
     requirePermission(context.user.permissions.create_sales_voucher, SALES_PERMISSION);
 
-    const quotation = await this.db.quotation.findFirst({
-      where: { id: quotationId },
+      const quotation = await this.db.quotation.findFirst({
+        where: { id: quotationId, deletedAt: null },
       include: {
         vouchers: {
           where: {
@@ -377,15 +398,20 @@ export class QuotationService {
       throw new AppError("Cannot delete quotation that has converted vouchers", 409, "VALIDATION_ERROR");
     }
 
-    const updated = await this.db.quotation.update({
-      where: { id: quotationId },
-      data: {
-        status: QuotationStatus.REJECTED
-      },
-      select: {
-        id: true,
-        status: true
-      }
+      const updated = await this.db.quotation.update({
+        where: { id: quotationId },
+        data: {
+          status: QuotationStatus.REJECTED,
+          deletedAt: new Date(),
+          deletedBy: context.user.id,
+          updatedBy: context.user.id,
+          lastEditedBy: context.user.id,
+          lastEditedAt: new Date()
+        },
+        select: {
+          id: true,
+          status: true
+        }
     });
 
     return {
@@ -424,8 +450,8 @@ export class QuotationService {
       };
     }
 
-    const quotation = await this.db.quotation.findFirst({
-      where: { id: quotationId },
+      const quotation = await this.db.quotation.findFirst({
+        where: { id: quotationId, deletedAt: null },
       include: {
         details: true
       }

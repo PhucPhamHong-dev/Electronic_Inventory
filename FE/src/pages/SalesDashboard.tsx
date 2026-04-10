@@ -493,6 +493,14 @@ export function SalesDashboardPage() {
         }
       },
       {
+        title: "Người tạo",
+        dataIndex: "createdByName",
+        key: "createdByName",
+        width: 160,
+        ellipsis: true,
+        render: (value: string | null) => value ?? "-"
+      },
+      {
         title: "Hành động",
         key: "actions",
         align: "center",
@@ -559,6 +567,14 @@ export function SalesDashboardPage() {
         align: "right",
         width: 180,
         render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
+      },
+      {
+        title: "Người tạo",
+        dataIndex: "createdByName",
+        key: "createdByName",
+        width: 160,
+        ellipsis: true,
+        render: (value: string | null) => value ?? "-"
       },
       {
         title: "Chức năng",

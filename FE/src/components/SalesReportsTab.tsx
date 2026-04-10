@@ -258,6 +258,7 @@ type DetailColumnKey =
   | "voucherNo"
   | "partnerCode"
   | "partnerName"
+  | "createdByName"
   | "paymentStatus"
   | "note"
   | "skuCode"
@@ -275,6 +276,7 @@ type DetailColumnKey =
 type DebtColumnKey =
   | "partnerCode"
   | "partnerName"
+  | "createdByName"
   | "openingBalance"
   | "debitInPeriod"
   | "creditInPeriod"
@@ -288,6 +290,7 @@ type InventoryColumnKey =
   | "voucherDate"
   | "voucherNo"
   | "note"
+  | "createdByName"
   | "unitName"
   | "unitCost"
   | "quantityIn"
@@ -306,6 +309,7 @@ const DETAIL_DEFAULT_COLUMNS: Array<{ key: DetailColumnKey; title: string; width
   { key: "voucherNo", title: "Số chứng từ", width: 140 },
   { key: "partnerCode", title: "Mã khách hàng/NCC", width: 150 },
   { key: "partnerName", title: "Tên khách hàng/NCC", width: 220 },
+  { key: "createdByName", title: "Người tạo", width: 160 },
   { key: "paymentStatus", title: "Trạng thái thanh toán", width: 180 },
   { key: "note", title: "Diễn giải", width: 220 },
   { key: "skuCode", title: "Mã hàng", width: 130 },
@@ -323,6 +327,7 @@ const DETAIL_DEFAULT_COLUMNS: Array<{ key: DetailColumnKey; title: string; width
 const DEBT_DEFAULT_COLUMNS: Array<{ key: DebtColumnKey; title: string; width: number; visible?: boolean }> = [
   { key: "partnerCode", title: "Mã khách hàng", width: 150 },
   { key: "partnerName", title: "Tên khách hàng", width: 240 },
+  { key: "createdByName", title: "Người tạo", width: 160 },
   { key: "openingBalance", title: "Dư đầu kỳ", width: 150 },
   { key: "debitInPeriod", title: "Phát sinh nợ", width: 150 },
   { key: "creditInPeriod", title: "Phát sinh có", width: 150 },
@@ -337,6 +342,7 @@ const MATERIAL_DEFAULT_COLUMNS: Array<{ key: InventoryColumnKey; title: string; 
   { key: "voucherDate", title: "Ngày hạch toán", width: 130 },
   { key: "voucherNo", title: "Số chứng từ", width: 140 },
   { key: "note", title: "Diễn giải", width: 220 },
+  { key: "createdByName", title: "Người tạo", width: 160 },
   { key: "unitName", title: "ĐVT", width: 90 },
   { key: "unitCost", title: "Đơn giá", width: 130 },
   { key: "quantityIn", title: "Nhập SL", width: 120 },
@@ -916,6 +922,13 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       width: 220,
       render: (value: string | null) => value ?? "-"
     },
+    createdByName: {
+      key: "createdByName",
+      dataIndex: "createdByName",
+      title: "Người tạo",
+      width: 160,
+      render: (value: string | null) => value ?? "-"
+    },
     paymentStatus: {
       key: "paymentStatus",
       dataIndex: "paymentStatus",
@@ -1029,6 +1042,13 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       title: reportType === "TONG_HOP_CONG_NO_NCC" ? "Tên nhà cung cấp" : "Tên khách hàng",
       width: 240
     },
+    createdByName: {
+      key: "createdByName",
+      dataIndex: "createdByName",
+      title: "Người tạo",
+      width: 160,
+      render: (value: string | null) => value ?? "-"
+    },
     openingBalance: {
       key: "openingBalance",
       dataIndex: "openingBalance",
@@ -1105,6 +1125,13 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       dataIndex: "note",
       title: "Diễn giải",
       width: 220,
+      render: (value: string | null) => value ?? "-"
+    },
+    createdByName: {
+      key: "createdByName",
+      dataIndex: "createdByName",
+      title: "Người tạo",
+      width: 160,
       render: (value: string | null) => value ?? "-"
     },
     unitName: { key: "unitName", dataIndex: "unitName", title: "ĐVT", width: 90, align: "center" },

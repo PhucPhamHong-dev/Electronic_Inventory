@@ -25,6 +25,7 @@ export interface ReportDetailRow {
   partnerName: string | null;
   paymentStatus: "UNPAID" | "PARTIAL" | "PAID";
   note: string | null;
+  createdByName: string | null;
   productId: string;
   skuCode: string;
   productName: string;
@@ -49,6 +50,7 @@ export interface DebtSummaryRow {
   creditInPeriod: number;
   closingBalance: number;
   currentDebt: number;
+  createdByName: string | null;
 }
 
 export interface InventoryMaterialRow {
@@ -62,6 +64,7 @@ export interface InventoryMaterialRow {
   voucherNo: string | null;
   voucherDate: string | null;
   note: string | null;
+  createdByName: string | null;
   unitCost: number;
   quantityIn: number;
   valueIn: number;

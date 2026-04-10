@@ -159,6 +159,14 @@ export function VoucherHistoryPage() {
         }
       },
       {
+        title: "Người tạo",
+        dataIndex: "createdByName",
+        key: "createdByName",
+        width: 160,
+        ellipsis: true,
+        render: (value: string | null) => value ?? "-"
+      },
+      {
         title: "HÃ nh Ä‘á»™ng",
         key: "actions",
         align: "center",
