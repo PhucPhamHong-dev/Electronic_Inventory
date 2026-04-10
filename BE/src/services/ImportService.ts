@@ -2334,12 +2334,19 @@ export class ImportService {
       return existing.id;
     }
 
-    const created = await tx.partner.create({
-      data: {
+    const created = await tx.partner.upsert({
+      where: { code },
+      create: {
         code,
         name,
         group,
         partnerType
+      },
+      update: {
+        name,
+        group,
+        partnerType,
+        deletedAt: null
       },
       select: { id: true, code: true, name: true, partnerType: true, group: true }
     });

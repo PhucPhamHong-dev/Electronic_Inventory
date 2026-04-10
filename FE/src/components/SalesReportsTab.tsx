@@ -153,10 +153,10 @@ const REPORT_IMPORT_CONFIGS: Record<ReportImportDomain, ReportImportConfig> = {
       { key: "discountRate", label: "% Chiết khấu", aliases: ["chiet khau", "ck"] },
       { key: "taxRate", label: "% Thuế GTGT", aliases: ["thue gtgt", "vat"] },
       { key: "lineAmount", label: "Tổng thanh toán", required: true, aliases: ["tong thanh toan", "thanh tien"] },
-      { key: "totalAmount", label: "Tổng tiền hàng", aliases: ["tong tien hang"] },
+      { key: "totalAmount", label: "Tổng tiền hàng", aliases: ["tong tien hang", "doanh so ban"] },
       { key: "totalDiscount", label: "Tiền chiết khấu", aliases: ["tien chiet khau"] },
       { key: "taxAmount", label: "Tiền thuế GTGT", aliases: ["tien thue"] },
-      { key: "totalNetAmount", label: "Tổng tiền thanh toán", required: true, aliases: ["tong thanh toan", "tong tien thanh toan"] },
+      { key: "totalNetAmount", label: "Tổng tiền thanh toán", required: true, aliases: ["tong thanh toan", "tong tien thanh toan", "thanh tien"] },
       { key: "paymentStatus", label: "TT thanh toán", aliases: ["trang thai thanh toan", "tt thanh toan"] }
     ]
   },
@@ -166,8 +166,8 @@ const REPORT_IMPORT_CONFIGS: Record<ReportImportDomain, ReportImportConfig> = {
     systemFields: [
       { key: "voucherDate", label: "Ngày chứng từ", required: true, aliases: ["ngay chung tu", "ngay hach toan"] },
       { key: "voucherNo", label: "Số chứng từ", required: true, aliases: ["so chung tu", "so phieu"] },
-      { key: "partnerCode", label: "Mã nhà cung cấp", aliases: ["ma nha cung cap", "ma doi tuong"] },
-      { key: "partnerName", label: "Tên nhà cung cấp", aliases: ["ten nha cung cap", "ten doi tuong"] },
+      { key: "partnerCode", label: "Mã nhà cung cấp", aliases: ["ma nha cung cap", "ma doi tuong", "ma khach hang/ncc", "ma khach hang ncc"] },
+      { key: "partnerName", label: "Tên nhà cung cấp", aliases: ["ten nha cung cap", "ten doi tuong", "ten khach hang/ncc", "ten khach hang ncc"] },
       { key: "note", label: "Diễn giải", aliases: ["dien giai", "ghi chu"] },
       { key: "skuCode", label: "Mã hàng", aliases: ["ma hang", "ma san pham"] },
       { key: "productName", label: "Tên hàng", required: true, aliases: ["ten hang", "ten san pham"] },
@@ -177,10 +177,10 @@ const REPORT_IMPORT_CONFIGS: Record<ReportImportDomain, ReportImportConfig> = {
       { key: "discountRate", label: "% Chiết khấu", aliases: ["chiet khau", "ck"] },
       { key: "taxRate", label: "% Thuế GTGT", aliases: ["thue gtgt", "vat"] },
       { key: "lineAmount", label: "Tổng thanh toán", required: true, aliases: ["tong thanh toan", "thanh tien"] },
-      { key: "totalAmount", label: "Tổng tiền hàng", aliases: ["tong tien hang"] },
+      { key: "totalAmount", label: "Tổng tiền hàng", aliases: ["tong tien hang", "doanh so ban"] },
       { key: "totalDiscount", label: "Tiền chiết khấu", aliases: ["tien chiet khau"] },
       { key: "taxAmount", label: "Tiền thuế GTGT", aliases: ["tien thue"] },
-      { key: "totalNetAmount", label: "Tổng tiền thanh toán", required: true, aliases: ["tong thanh toan", "tong tien thanh toan"] },
+      { key: "totalNetAmount", label: "Tổng tiền thanh toán", required: true, aliases: ["tong thanh toan", "tong tien thanh toan", "thanh tien"] },
       { key: "paymentStatus", label: "TT thanh toán", aliases: ["trang thai thanh toan", "tt thanh toan"] }
     ]
   },

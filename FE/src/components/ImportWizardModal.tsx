@@ -213,7 +213,7 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
   const [headerRowNumber, setHeaderRowNumber] = useState(1);
   const [columnMapping, setColumnMapping] = useState<Partial<Record<Extract<keyof TMapped, string>, string>>>({});
   const [validationResults, setValidationResults] = useState<ImportValidationResponse<TMapped> | null>(null);
-  const [importMode, setImportMode] = useState<ImportMode>("CREATE_ONLY");
+  const [importMode, setImportMode] = useState<ImportMode>("UPSERT");
   const [busy, setBusy] = useState(false);
   const [mappingSearch, setMappingSearch] = useState("");
   const [showAllMapping, setShowAllMapping] = useState(true);
@@ -232,7 +232,7 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
       setHeaderRowNumber(1);
       setColumnMapping({});
       setValidationResults(null);
-      setImportMode("CREATE_ONLY");
+      setImportMode("UPSERT");
       setBusy(false);
       setMappingSearch("");
       setShowAllMapping(true);

@@ -135,7 +135,6 @@ function parseWorkbook(filePath: string, aliases: FieldAliasMap): ParseResult {
 }
 
 function buildMapping(headers: string[], aliases: FieldAliasMap): Record<string, string> {
-  const usedHeaders = new Set<string>();
   const mapping: Record<string, string> = {};
 
   for (const [fieldKey, aliasList] of Object.entries(aliases)) {
@@ -145,9 +144,6 @@ function buildMapping(headers: string[], aliases: FieldAliasMap): Record<string,
     const normalizedAliases = [normalizedKey, ...aliasList.map((item) => normalizeText(item))];
 
     for (const header of headers) {
-      if (usedHeaders.has(header)) {
-        continue;
-      }
       const normalizedHeader = normalizeText(header);
       if (!normalizedHeader) {
         continue;
@@ -175,7 +171,6 @@ function buildMapping(headers: string[], aliases: FieldAliasMap): Record<string,
 
     if (bestHeader && bestScore > 0) {
       mapping[fieldKey] = bestHeader;
-      usedHeaders.add(bestHeader);
     }
   }
 
@@ -209,8 +204,8 @@ const TEST_CASES: TestCaseDefinition[] = [
     domain: "PRODUCTS",
     fileNeedleSets: [["file", "hang hoa", "sample"], ["file", "hang hoa"]],
     fieldAliases: {
-      skuCode: ["ma hang", "ma san pham", "sku"],
-      name: ["ten hang", "ten san pham"],
+      skuCode: ["ma hang", "ma san pham", "sku", "ma (*)"],
+      name: ["ten hang", "ten san pham", "ten (*)"],
       unitName: ["dvt", "don vi tinh", "don vi"],
       warehouseName: ["kho", "ma kho"],
       sellingPrice: ["gia ban", "don gia"]
@@ -310,7 +305,7 @@ const TEST_CASES: TestCaseDefinition[] = [
   {
     name: "Chi tiết bán hàng",
     domain: "SALES_DETAILS",
-    fileNeedleSets: [["chi tiet", "ban hang"]],
+    fileNeedleSets: [["chi tiet", "ban hang"], ["so chi tiet", "ban hang"]],
     fieldAliases: {
       voucherDate: ["ngay chung tu", "ngay hach toan"],
       voucherNo: ["so chung tu", "so phieu"],
@@ -328,19 +323,19 @@ const TEST_CASES: TestCaseDefinition[] = [
       totalAmount: ["tong tien hang", "doanh so ban"],
       totalDiscount: ["tien chiet khau"],
       taxAmount: ["tien thue gtgt", "tien thue"],
-      totalNetAmount: ["tong tien thanh toan", "tong thanh toan"],
+      totalNetAmount: ["tong tien thanh toan", "tong thanh toan", "thanh tien"],
       paymentStatus: ["tt thanh toan", "trang thai thanh toan"]
     }
   },
   {
     name: "Chi tiết mua hàng",
     domain: "PURCHASE_DETAILS",
-    fileNeedleSets: [["chi tiet mua hang"], ["mua hang hoa dich vu"]],
+    fileNeedleSets: [["chi tiet mua hang"], ["so chi tiet", "mua hang"], ["mua hang hoa dich vu"]],
     fieldAliases: {
       voucherDate: ["ngay chung tu", "ngay hach toan"],
       voucherNo: ["so chung tu", "so phieu"],
-      partnerCode: ["ma nha cung cap", "ma doi tuong"],
-      partnerName: ["ten nha cung cap", "nha cung cap", "ten doi tuong"],
+      partnerCode: ["ma nha cung cap", "ma doi tuong", "ma khach hang ncc", "ma khach hang/ncc"],
+      partnerName: ["ten nha cung cap", "nha cung cap", "ten doi tuong", "ten khach hang ncc", "ten khach hang/ncc"],
       note: ["dien giai", "ghi chu"],
       skuCode: ["ma hang", "ma san pham"],
       productName: ["ten hang", "ten san pham"],
@@ -353,7 +348,7 @@ const TEST_CASES: TestCaseDefinition[] = [
       totalAmount: ["tong tien hang", "doanh so ban"],
       totalDiscount: ["tien chiet khau"],
       taxAmount: ["tien thue gtgt", "tien thue"],
-      totalNetAmount: ["tong tien thanh toan", "tong thanh toan"],
+      totalNetAmount: ["tong tien thanh toan", "tong thanh toan", "thanh tien"],
       paymentStatus: ["tt thanh toan", "trang thai thanh toan"]
     }
   },

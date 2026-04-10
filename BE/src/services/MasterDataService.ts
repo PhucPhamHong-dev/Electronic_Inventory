@@ -1,5 +1,6 @@
 import { InventoryMovementType, Prisma, type PartnerGroup, type PartnerType, type PrismaClient, type VoucherType } from "@prisma/client";
 import { prisma } from "../config/db";
+import { env } from "../config/env";
 import type {
   CreatePartnerDto,
   ListPartnersQueryDto,
@@ -134,6 +135,12 @@ export interface StockCardView {
 }
 
 export class MasterDataService {
+  private readonly importTxOptions = {
+    maxWait: env.IMPORT_TX_MAX_WAIT_MS,
+    timeout: env.IMPORT_TX_TIMEOUT_MS,
+    isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted
+  } as const;
+
   constructor(private readonly db: PrismaClient = prisma) {}
 
   async listProducts(input: PaginationInput) {
@@ -406,7 +413,7 @@ export class MasterDataService {
           updated
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      this.importTxOptions
     );
 
     return result;
@@ -594,7 +601,7 @@ export class MasterDataService {
           updated
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      this.importTxOptions
     );
   }
 
@@ -666,7 +673,7 @@ export class MasterDataService {
           updated
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      this.importTxOptions
     );
 
     return result;
@@ -849,7 +856,7 @@ export class MasterDataService {
           updated
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      this.importTxOptions
     );
   }
 
