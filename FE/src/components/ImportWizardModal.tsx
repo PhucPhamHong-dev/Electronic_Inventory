@@ -37,6 +37,8 @@ interface ImportWizardModalProps<TMapped extends object> {
   title: string;
   entityLabel: string;
   systemFields: Array<ImportSystemField<TMapped>>;
+  showSourceSummary?: boolean;
+  sourceSummaryLabel?: string;
   onCancel: () => void;
   onValidate: (input: {
     jsonData: RawImportRecord[];
@@ -202,7 +204,18 @@ function splitErrorNote(errorNote: string): string[] {
 }
 
 export function ImportWizardModal<TMapped extends object>(props: ImportWizardModalProps<TMapped>) {
-  const { open, title, entityLabel, systemFields, onCancel, onValidate, onCommit, onCompleted } = props;
+  const {
+    open,
+    title,
+    entityLabel,
+    systemFields,
+    showSourceSummary = false,
+    sourceSummaryLabel,
+    onCancel,
+    onValidate,
+    onCommit,
+    onCompleted
+  } = props;
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileName, setSelectedFileName] = useState("");
@@ -711,7 +724,41 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
                     ]}
                   />
                 </div>
-              </div>
+                </div>
+
+                {showSourceSummary ? (
+                  <div className="misa-import__source-summary">
+                    <div className="misa-import__source-summary-title">
+                      Tóm tắt phát hiện{sourceSummaryLabel ? ` - ${sourceSummaryLabel}` : ""}
+                    </div>
+                    <div className="misa-import__source-summary-grid">
+                      <div>
+                        <div className="misa-import__source-summary-label">Sheet chứa dữ liệu</div>
+                        <div className="misa-import__source-summary-value">{activeSheetName || "-"}</div>
+                      </div>
+                      <div>
+                        <div className="misa-import__source-summary-label">Dòng tiêu đề</div>
+                        <div className="misa-import__source-summary-value">{headerRowNumber}</div>
+                      </div>
+                      <div>
+                        <div className="misa-import__source-summary-label">Số cột nhận diện</div>
+                        <div className="misa-import__source-summary-value">{excelHeaders.length}</div>
+                      </div>
+                      <div>
+                        <div className="misa-import__source-summary-label">Số dòng đọc được</div>
+                        <div className="misa-import__source-summary-value">{fileData.length}</div>
+                      </div>
+                      <div>
+                        <div className="misa-import__source-summary-label">Dòng hợp lệ</div>
+                        <div className="misa-import__source-summary-value">{validationResults?.summary.valid ?? 0}</div>
+                      </div>
+                      <div>
+                        <div className="misa-import__source-summary-label">Dòng không hợp lệ</div>
+                        <div className="misa-import__source-summary-value">{validationResults?.summary.invalid ?? 0}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
 
               {(validationResults?.summary.invalid ?? 0) > 0 ? (
                 <div className="misa-import__validation-guide">

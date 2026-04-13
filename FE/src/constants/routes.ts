@@ -7,6 +7,7 @@ export const ROUTES = {
   CASH_VOUCHERS: "/cash-vouchers",
   VOUCHER_FORM: "/vouchers/new",
   PRODUCTS: "/products",
+  WAREHOUSES: "/warehouses",
   PARTNERS: "/partners",
   CUSTOMERS: "/partners?group=CUSTOMER",
   SUPPLIERS: "/partners?group=SUPPLIER",

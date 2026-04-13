@@ -1,6 +1,7 @@
 ﻿import { DeleteOutlined, DownOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { EditOutlined } from "@ant-design/icons";
+import { CloseOutlined } from "@ant-design/icons";
 import {
   Button,
   Col,
@@ -310,7 +311,12 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      addRowAndFocus(columnKey);
+      const nextIndex = findAdjacentItemRow(rowIndex, 1);
+      if (nextIndex >= 0) {
+        focusCell(nextIndex, columnKey);
+      } else {
+        addRowAndFocus(columnKey);
+      }
       return;
     }
     if (event.key === "ArrowLeft") {
@@ -729,6 +735,12 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
   };
 
   const drawerTitle = watchedVoucherNo && watchedVoucherNo !== "Tự sinh khi lưu" ? `${headerTitle} ${watchedVoucherNo}` : headerTitle;
+  const drawerHeader = (
+    <div className="voucher-drawer-header">
+      <span className="voucher-drawer-title">{drawerTitle}</span>
+      <Button type="text" className="voucher-drawer-close" icon={<CloseOutlined />} onClick={onClose} />
+    </div>
+  );
   const selectedPartner = selectedPartnerId ? partnerMap.get(selectedPartnerId) : undefined;
   const partnerModalInitialValues: Partial<PartnerFormValues> | undefined =
     partnerModalMode === "edit" && selectedPartner
@@ -895,7 +907,8 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         width="100%"
         destroyOnClose
         open={open}
-        title={<span className="sales-voucher-drawer-title">{drawerTitle}</span>}
+        title={drawerHeader}
+        closable={false}
         onClose={onClose}
         rootClassName="sales-voucher-drawer"
         styles={{ body: { paddingBottom: 12 } }}
@@ -920,7 +933,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
               </div>
             </div>
           </Form>
-          <div className="sales-voucher-grid-section"><Table<SalesRow> rowKey="key" size="small" bordered tableLayout="fixed" className="voucher-detail-table sales-voucher-detail-table sales-voucher-detail-table-misa" pagination={false} columns={columns} dataSource={rows} scroll={{ y: 320 }} /></div>
+          <div className="sales-voucher-grid-section"><Table<SalesRow> rowKey="key" size="small" bordered className="voucher-detail-table sales-voucher-detail-table sales-voucher-detail-table-misa" pagination={false} columns={columns} dataSource={rows} scroll={{ y: 320 }} /></div>
           <div className="sales-voucher-table-footer sales-voucher-table-footer-misa"><div className="sales-voucher-footer-actions-left"><Typography.Text type="secondary">{`Tổng số: ${rows.length} bản ghi`}</Typography.Text><Space wrap><Button icon={<PlusOutlined />} onClick={addRow}>Thêm dòng</Button><Button onClick={addNoteRow}>Thêm ghi chú</Button><Button danger onClick={clearRows}>Xóa hết dòng</Button></Space></div><div className="voucher-summary-block sales-voucher-summary-block"><Row justify="space-between" className="voucher-summary-row"><Typography.Text>Tổng tiền hàng</Typography.Text><Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalAmount)}</Typography.Text></Row><Row justify="space-between" className="voucher-summary-row"><Typography.Text>Thuế GTGT</Typography.Text><Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalTaxAmount)}</Typography.Text></Row><Row justify="space-between" className="voucher-summary-row voucher-summary-row-total"><Typography.Text strong>Tổng tiền thanh toán</Typography.Text><Typography.Text strong className="voucher-summary-value voucher-summary-value-total">{formatCurrency(totals.totalNetAmount)}</Typography.Text></Row></div></div>
         </div>
       </Drawer>

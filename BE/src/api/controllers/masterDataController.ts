@@ -14,7 +14,8 @@ const paginationSchema = z.object({
   keyword: z.string().optional(),
   type: z.enum(["SUPPLIER", "CUSTOMER", "BOTH"]).optional(),
   group: z.enum(["CUSTOMER", "SUPPLIER"]).optional(),
-  debtOnly: z.coerce.boolean().optional()
+  debtOnly: z.coerce.boolean().optional(),
+  debtStatus: z.enum(["HAS_DEBT", "NO_DEBT"]).optional()
 });
 
 const arLedgerQuerySchema = z.object({
@@ -29,6 +30,18 @@ const stockCardQuerySchema = z.object({
   productId: z.string().uuid(),
   startDate: z.string().optional(),
   endDate: z.string().optional()
+});
+
+const warehouseProductsQuerySchema = z.object({
+  warehouseKey: z.string().min(1)
+});
+
+const warehouseIdParamsSchema = z.object({
+  id: z.string().uuid()
+});
+
+const warehousePayloadSchema = z.object({
+  name: z.string().min(1)
 });
 
 const importPartnerQuerySchema = z.object({
@@ -110,6 +123,7 @@ const createProductSchema = z.object({
   costPrice: z.number().min(0).optional(),
   sellingPrice: z.number().min(0).optional(),
   unitName: z.string().min(1).optional(),
+  warehouseId: z.string().uuid().optional(),
   warehouseName: z.string().optional()
 });
 
@@ -120,6 +134,7 @@ const updateProductSchema = z
     costPrice: z.number().min(0).optional(),
     sellingPrice: z.number().min(0).optional(),
     unitName: z.string().min(1).optional(),
+    warehouseId: z.string().uuid().optional(),
     warehouseName: z.string().optional()
   })
   .refine((value) => Object.keys(value).length > 0, {
@@ -268,6 +283,61 @@ function parsePartnersFromExcelBuffer(buffer: Buffer) {
 }
 
 export class MasterDataController {
+  static async getWarehouses(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const data = await service.listWarehouses();
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getWarehouseProducts(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const query = warehouseProductsQuerySchema.parse(req.query);
+      const data = await service.listWarehouseProducts(query.warehouseKey);
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async createWarehouse(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const payload = warehousePayloadSchema.parse(req.body);
+      const data = await service.createWarehouse(payload.name);
+      sendSuccess(res, traceId, data, 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateWarehouse(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const params = warehouseIdParamsSchema.parse(req.params);
+      const payload = warehousePayloadSchema.parse(req.body);
+      const data = await service.updateWarehouse(params.id, payload.name);
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async deleteWarehouse(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const traceId = assertContext(req);
+      const params = warehouseIdParamsSchema.parse(req.params);
+      const data = await service.deleteWarehouse(params.id);
+      sendSuccess(res, traceId, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getProducts(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const traceId = assertContext(req);

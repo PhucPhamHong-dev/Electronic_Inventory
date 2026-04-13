@@ -15,6 +15,7 @@ import {
   Typography,
   message
 } from "antd";
+import { CloseOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import { useEffect, useMemo, useState, type FocusEvent } from "react";
@@ -213,6 +214,12 @@ export function SalesReturnDrawer(props: SalesReturnDrawerProps) {
       ),
     [rows]
   );
+  const drawerHeader = (
+    <div className="voucher-drawer-header">
+      <span className="voucher-drawer-title">Trả lại hàng bán</span>
+      <Button type="text" className="voucher-drawer-close" icon={<CloseOutlined />} onClick={onClose} />
+    </div>
+  );
 
   const updateRow = (rowKey: string, quantity: number) => {
     setRows((prev) =>
@@ -348,7 +355,8 @@ export function SalesReturnDrawer(props: SalesReturnDrawerProps) {
       width="100%"
       destroyOnClose
       open={open}
-      title={<span className="sales-voucher-drawer-title">Trả lại hàng bán</span>}
+      title={drawerHeader}
+      closable={false}
       onClose={onClose}
       rootClassName="sales-voucher-drawer sales-return-drawer"
       styles={{ body: { paddingBottom: 12 } }}
@@ -485,7 +493,7 @@ export function SalesReturnDrawer(props: SalesReturnDrawerProps) {
             columns={columns}
             dataSource={rows}
             loading={originalVoucherDetailQuery.isFetching}
-            scroll={{ x: 1100, y: 320 }}
+            scroll={{ y: 320 }}
           />
         </div>
 

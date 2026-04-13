@@ -1,9 +1,10 @@
-import { DownOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, DownOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, DatePicker, Dropdown, Input, Space, Table, Tag, Typography, message } from "antd";
 import type { MenuProps, TableColumnsType } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx-js-style";
 import { ImportWizardModal } from "../components/ImportWizardModal";
 import { commitImportData, validateImportData } from "../services/import.api";
 import { SalesVoucherDrawer } from "../components/SalesVoucherDrawer";
@@ -44,8 +45,8 @@ function toDateString(value: Dayjs): string {
   return value.format("YYYY-MM-DD");
 }
 
-function getTodayRange(): [Dayjs, Dayjs] {
-  return [dayjs().startOf("day"), dayjs().endOf("day")];
+function getYearToDateRange(): [Dayjs, Dayjs] {
+  return [dayjs().startOf("year"), dayjs().endOf("day")];
 }
 
 export function PurchaseDashboardPage() {
@@ -62,7 +63,7 @@ export function PurchaseDashboardPage() {
 
   useEffect(() => {
     if (!range) {
-      setRange(getTodayRange());
+      setRange(getYearToDateRange());
     }
   }, [range]);
 
@@ -85,8 +86,8 @@ export function PurchaseDashboardPage() {
         pageSize,
         type: "PURCHASE",
         search: search || undefined,
-        startDate: toDateString(range?.[0] ?? getTodayRange()[0]),
-        endDate: toDateString(range?.[1] ?? getTodayRange()[1])
+        startDate: toDateString(range?.[0] ?? getYearToDateRange()[0]),
+        endDate: toDateString(range?.[1] ?? getYearToDateRange()[1])
       }),
     enabled: Boolean(range)
   });
@@ -235,6 +236,22 @@ export function PurchaseDashboardPage() {
         render: (value: string | null) => value ?? "-"
       },
       {
+        title: "Tổng tiền hàng",
+        dataIndex: "totalAmount",
+        key: "totalAmount",
+        align: "right",
+        width: 165,
+        render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
+      },
+      {
+        title: "Tiền thuế GTGT",
+        dataIndex: "totalTaxAmount",
+        key: "totalTaxAmount",
+        align: "right",
+        width: 165,
+        render: (value: number) => <Typography.Text>{formatCurrency(value)}</Typography.Text>
+      },
+      {
         title: "Tổng thanh toán",
         dataIndex: "totalNetAmount",
         key: "totalNetAmount",
@@ -357,10 +374,10 @@ export function PurchaseDashboardPage() {
                 format="DD/MM/YYYY"
                 value={range}
                 onChange={(nextRange) => {
-                  if (!nextRange || !nextRange[0] || !nextRange[1]) {
-                    setRange(getTodayRange());
-                    return;
-                  }
+                    if (!nextRange || !nextRange[0] || !nextRange[1]) {
+                      setRange(getYearToDateRange());
+                      return;
+                    }
                   setRange([nextRange[0].startOf("day"), nextRange[1].endOf("day")]);
                 }}
               />
@@ -368,6 +385,9 @@ export function PurchaseDashboardPage() {
             <Space>
               <Button icon={<UploadOutlined />} onClick={() => setOpenImportModal(true)}>
                 Nhập từ Excel
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={() => void handleExportPurchaseListExcel()}>
+                Xuất Excel
               </Button>
               <Button
                 type="primary"
@@ -413,14 +433,15 @@ export function PurchaseDashboardPage() {
                     <Typography.Text strong>Tổng cộng</Typography.Text>
                   </Table.Summary.Cell>
                   <Table.Summary.Cell index={1} align="right">
-                    <Typography.Text>{`Tiền hàng: ${formatCurrency(summary.totalAmount)}`}</Typography.Text>
+                    <Typography.Text>{formatCurrency(summary.totalAmount)}</Typography.Text>
                   </Table.Summary.Cell>
                   <Table.Summary.Cell index={2} align="right">
-                    <Typography.Text type="secondary">{`Thuế: ${formatCurrency(summary.totalTaxAmount)}`}</Typography.Text>
+                    <Typography.Text type="secondary">{formatCurrency(summary.totalTaxAmount)}</Typography.Text>
                   </Table.Summary.Cell>
-                  <Table.Summary.Cell index={3} colSpan={2} align="right">
-                    <Typography.Text strong>{`Thanh toán: ${formatCurrency(summary.totalNetAmount)}`}</Typography.Text>
+                  <Table.Summary.Cell index={3} align="right">
+                    <Typography.Text strong>{formatCurrency(summary.totalNetAmount)}</Typography.Text>
                   </Table.Summary.Cell>
+                  <Table.Summary.Cell index={4} colSpan={4} />
                 </Table.Summary.Row>
               );
             }}
@@ -543,3 +564,132 @@ export function PurchaseDashboardPage() {
 
 
 
+  const downloadWorkbook = (workbook: XLSX.WorkBook, fileName: string) => {
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName.replace(/[\\/:*?"<>|]/g, "_");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const fetchAllPurchaseVouchersForExport = async (): Promise<VoucherHistoryItem[]> => {
+    const pageSizeForExport = 200;
+    let currentPage = 1;
+    let total = 0;
+    const allItems: VoucherHistoryItem[] = [];
+
+    do {
+      const response = await fetchVouchers({
+        page: currentPage,
+        pageSize: pageSizeForExport,
+        type: "PURCHASE",
+        search: search || undefined,
+        startDate: toDateString(range?.[0] ?? getYearToDateRange()[0]),
+        endDate: toDateString(range?.[1] ?? getYearToDateRange()[1])
+      });
+      allItems.push(...response.items);
+      total = response.total;
+      if (!response.items.length) {
+        break;
+      }
+      currentPage += 1;
+    } while (allItems.length < total);
+
+    return allItems;
+  };
+
+  const handleExportPurchaseListExcel = async (): Promise<void> => {
+    try {
+      const items = await fetchAllPurchaseVouchersForExport();
+      if (!items.length) {
+        message.warning("Không có dữ liệu mua hàng để xuất Excel.");
+        return;
+      }
+
+      const fromText = range?.[0]?.format("DD/MM/YYYY") ?? dayjs().startOf("year").format("DD/MM/YYYY");
+      const toText = range?.[1]?.format("DD/MM/YYYY") ?? dayjs().endOf("day").format("DD/MM/YYYY");
+      const totals = items.reduce(
+        (acc, item) => {
+          acc.totalAmount += item.totalNetAmount - item.totalTaxAmount;
+          acc.totalTaxAmount += item.totalTaxAmount;
+          acc.totalNetAmount += item.totalNetAmount;
+          return acc;
+        },
+        { totalAmount: 0, totalTaxAmount: 0, totalNetAmount: 0 }
+      );
+
+      const sheetData: Array<Array<string | number>> = [
+        ["DANH SÁCH MUA HÀNG"],
+        [`Từ ngày ${fromText} đến ngày ${toText}`],
+        [],
+        ["Ngày chứng từ", "Số phiếu", "Nhà cung cấp", "Tổng tiền hàng", "Tiền thuế GTGT", "Tổng thanh toán", "Thanh toán", "PTTT", "Diễn giải"],
+        ...items.map((item) => [
+          dayjs(item.voucherDate).format("DD/MM/YYYY"),
+          item.voucherNo ?? item.id.slice(0, 8),
+          item.partnerName ?? "",
+          item.totalNetAmount - item.totalTaxAmount,
+          item.totalTaxAmount,
+          item.totalNetAmount,
+          paymentStatusMeta[item.paymentStatus].label,
+          item.paymentStatus === "PAID" ? mapPaymentMethodLabel(item.paymentMethod) : "",
+          item.note ?? ""
+        ]),
+        ["Tổng cộng", "", "", totals.totalAmount, totals.totalTaxAmount, totals.totalNetAmount, "", "", ""]
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      ws["!merges"] = [XLSX.utils.decode_range("A1:I1"), XLSX.utils.decode_range("A2:I2")];
+      ws["!cols"] = [
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 36 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 40 }
+      ];
+
+      const headerRow = 4;
+      for (let col = 0; col < 9; col += 1) {
+        const headerCell = ws[XLSX.utils.encode_cell({ r: headerRow - 1, c: col })] as (XLSX.CellObject & { s?: Record<string, unknown> }) | undefined;
+        if (headerCell) {
+          headerCell.s = {
+            font: { bold: true },
+            alignment: { horizontal: "center", vertical: "center" },
+            fill: { patternType: "solid", fgColor: { rgb: "D9E1F2" } }
+          };
+        }
+      }
+
+      const moneyCols = new Set([3, 4, 5]);
+      for (let row = headerRow + 1; row <= headerRow + items.length + 1; row += 1) {
+        for (const col of moneyCols) {
+          const cell = ws[XLSX.utils.encode_cell({ r: row - 1, c: col })] as (XLSX.CellObject & { s?: Record<string, unknown> }) | undefined;
+          if (cell) {
+            cell.s = { alignment: { horizontal: "right" }, numFmt: "#,##0" };
+          }
+        }
+      }
+      const summaryRow = headerRow + items.length + 1;
+      const summaryCell = ws[XLSX.utils.encode_cell({ r: summaryRow - 1, c: 0 })] as (XLSX.CellObject & { s?: Record<string, unknown> }) | undefined;
+      if (summaryCell) {
+        summaryCell.s = { font: { bold: true } };
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "DanhSachMuaHang");
+      downloadWorkbook(wb, `Danh_sach_mua_hang_${dayjs().format("YYYYMMDD-HHmmss")}.xlsx`);
+      message.success("Đã xuất Excel danh sách mua hàng.");
+    } catch (error) {
+      message.error((error as Error).message || "Xuất Excel thất bại.");
+    }
+  };

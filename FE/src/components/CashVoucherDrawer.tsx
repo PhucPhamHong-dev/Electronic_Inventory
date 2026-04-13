@@ -1,5 +1,6 @@
 ﻿import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { CloseOutlined } from "@ant-design/icons";
 import {
   Button,
   Checkbox,
@@ -1364,6 +1365,12 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
 
   const drawerTitle = voucherType === "RECEIPT" ? "Phiếu thu" : "Phiếu chi";
   const screenTotalAmount = invoiceBased ? totalAllocated : directTotalAmount;
+  const drawerHeader = (
+    <div className="voucher-drawer-header">
+      <span className="voucher-drawer-title">{drawerTitle}</span>
+      <Button type="text" className="voucher-drawer-close" icon={<CloseOutlined />} onClick={onClose} />
+    </div>
+  );
 
   return (
     <>
@@ -1371,7 +1378,8 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
         width="100%"
         destroyOnClose
         open={open}
-        title={<span className="sales-voucher-drawer-title">{drawerTitle}</span>}
+        title={drawerHeader}
+        closable={false}
         onClose={onClose}
         rootClassName="sales-voucher-drawer cash-voucher-drawer"
         styles={{ body: { paddingBottom: 12 } }}

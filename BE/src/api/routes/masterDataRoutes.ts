@@ -9,6 +9,11 @@ import { asyncHandler } from "../middlewares/asyncHandler";
 export const masterDataRouter = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+masterDataRouter.get("/warehouses", asyncHandler(MasterDataController.getWarehouses));
+masterDataRouter.post("/warehouses", asyncHandler(MasterDataController.createWarehouse));
+masterDataRouter.put("/warehouses/:id", asyncHandler(MasterDataController.updateWarehouse));
+masterDataRouter.delete("/warehouses/:id", asyncHandler(MasterDataController.deleteWarehouse));
+masterDataRouter.get("/warehouses/products", asyncHandler(MasterDataController.getWarehouseProducts));
 masterDataRouter.get("/products", asyncHandler(MasterDataController.getProducts));
 masterDataRouter.post("/products", asyncHandler(MasterDataController.createProduct));
 masterDataRouter.put("/products/:id", asyncHandler(MasterDataController.updateProduct));

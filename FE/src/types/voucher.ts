@@ -97,6 +97,7 @@ export interface ProductOption {
   skuCode: string;
   name: string;
   unitName?: string;
+  warehouseId?: string | null;
   warehouseName?: string | null;
   costPrice: number;
   sellingPrice: number;

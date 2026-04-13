@@ -68,10 +68,6 @@ function toDateString(value: Dayjs): string {
   return value.format("YYYY-MM-DD");
 }
 
-function getTodayRange(): [Dayjs, Dayjs] {
-  return [dayjs().startOf("day"), dayjs().endOf("day")];
-}
-
 function getYearToDateRange(): [Dayjs, Dayjs] {
   return [dayjs().startOf("year"), dayjs().endOf("day")];
 }
@@ -106,13 +102,13 @@ export function SalesDashboardPage() {
 
   useEffect(() => {
     if (!voucherRange) {
-      setVoucherRange(getTodayRange());
+      setVoucherRange(getYearToDateRange());
     }
     if (!quotationRange) {
       setQuotationRange(getYearToDateRange());
     }
     if (!salesReturnRange) {
-      setSalesReturnRange(getTodayRange());
+      setSalesReturnRange(getYearToDateRange());
     }
   }, [quotationRange, salesReturnRange, voucherRange]);
 
@@ -163,8 +159,8 @@ export function SalesDashboardPage() {
         pageSize,
         type: "SALES",
         search: voucherSearch || undefined,
-        startDate: toDateString(voucherRange?.[0] ?? getTodayRange()[0]),
-        endDate: toDateString(voucherRange?.[1] ?? getTodayRange()[1])
+        startDate: toDateString(voucherRange?.[0] ?? getYearToDateRange()[0]),
+        endDate: toDateString(voucherRange?.[1] ?? getYearToDateRange()[1])
       }),
     enabled: activeWorkflowTab === "SALES" && Boolean(voucherRange)
   });
@@ -202,8 +198,8 @@ export function SalesDashboardPage() {
         pageSize,
         type: "SALES_RETURN",
         search: salesReturnSearch || undefined,
-        startDate: toDateString(salesReturnRange?.[0] ?? getTodayRange()[0]),
-        endDate: toDateString(salesReturnRange?.[1] ?? getTodayRange()[1])
+        startDate: toDateString(salesReturnRange?.[0] ?? getYearToDateRange()[0]),
+        endDate: toDateString(salesReturnRange?.[1] ?? getYearToDateRange()[1])
       }),
     enabled: activeWorkflowTab === "SALES_RETURN" && Boolean(salesReturnRange)
   });
@@ -788,8 +784,8 @@ export function SalesDashboardPage() {
         pageSize: pageSizeForExport,
         type: "SALES",
         search: voucherSearch || undefined,
-        startDate: toDateString(voucherRange?.[0] ?? getTodayRange()[0]),
-        endDate: toDateString(voucherRange?.[1] ?? getTodayRange()[1])
+        startDate: toDateString(voucherRange?.[0] ?? getYearToDateRange()[0]),
+        endDate: toDateString(voucherRange?.[1] ?? getYearToDateRange()[1])
       });
       allItems.push(...response.items);
       total = response.total;
@@ -812,6 +808,16 @@ export function SalesDashboardPage() {
 
       const fromText = voucherRange?.[0]?.format("DD/MM/YYYY") ?? dayjs().startOf("day").format("DD/MM/YYYY");
       const toText = voucherRange?.[1]?.format("DD/MM/YYYY") ?? dayjs().endOf("day").format("DD/MM/YYYY");
+      const totals = items.reduce(
+        (acc, item) => {
+          acc.totalAmount += item.totalNetAmount - item.totalTaxAmount;
+          acc.totalTaxAmount += item.totalTaxAmount;
+          acc.totalNetAmount += item.totalNetAmount;
+          return acc;
+        },
+        { totalAmount: 0, totalTaxAmount: 0, totalNetAmount: 0 }
+      );
+
       const sheetData: Array<Array<string | number>> = [
         ["DANH SÁCH BÁN HÀNG"],
         [`Từ ngày ${fromText} đến ngày ${toText}`],
@@ -827,7 +833,8 @@ export function SalesDashboardPage() {
           paymentStatusMeta[item.paymentStatus].label,
           item.paymentStatus === "PAID" ? mapPaymentMethodLabel(item.paymentMethod) : "",
           item.note ?? ""
-        ])
+        ]),
+        ["Tổng cộng", "", "", totals.totalAmount, totals.totalTaxAmount, totals.totalNetAmount, "", "", ""]
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(sheetData);
@@ -857,13 +864,18 @@ export function SalesDashboardPage() {
       }
 
       const moneyCols = new Set([3, 4, 5]);
-      for (let row = headerRow + 1; row <= headerRow + items.length; row += 1) {
+      for (let row = headerRow + 1; row <= headerRow + items.length + 1; row += 1) {
         for (const col of moneyCols) {
           const cell = ws[XLSX.utils.encode_cell({ r: row - 1, c: col })] as (XLSX.CellObject & { s?: Record<string, unknown> }) | undefined;
           if (cell) {
             cell.s = { alignment: { horizontal: "right" }, numFmt: "#,##0" };
           }
         }
+      }
+      const summaryRow = headerRow + items.length + 1;
+      const summaryCell = ws[XLSX.utils.encode_cell({ r: summaryRow - 1, c: 0 })] as (XLSX.CellObject & { s?: Record<string, unknown> }) | undefined;
+      if (summaryCell) {
+        summaryCell.s = { font: { bold: true } };
       }
 
       const wb = XLSX.utils.book_new();
@@ -920,7 +932,7 @@ export function SalesDashboardPage() {
                   value={voucherRange}
                   onChange={(nextRange) => {
                     if (!nextRange || !nextRange[0] || !nextRange[1]) {
-                      setVoucherRange(getTodayRange());
+                      setVoucherRange(getYearToDateRange());
                       return;
                     }
                     setVoucherRange([nextRange[0].startOf("day"), nextRange[1].endOf("day")]);
@@ -965,11 +977,21 @@ export function SalesDashboardPage() {
               rowClassName={(record) => (record.id === selectedVoucherId ? "sales-master-active-row" : "")}
               summary={() => (
                 <Table.Summary.Row>
-                  <Table.Summary.Cell index={0} colSpan={9} align="right">
+                  <Table.Summary.Cell index={0} colSpan={4} align="right">
+                    <Typography.Text strong>Tổng cộng</Typography.Text>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={1} align="right">
+                    <Typography.Text>{formatCurrency(salesSummary.totalAmount)}</Typography.Text>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={2} align="right">
+                    <Typography.Text type="secondary">{formatCurrency(salesSummary.totalTaxAmount)}</Typography.Text>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={3} align="right">
                     <Typography.Text strong className="sales-summary-net">
-                      {`Tổng thanh toán: ${formatCurrency(salesSummary.totalNetAmount)}`}
+                      {formatCurrency(salesSummary.totalNetAmount)}
                     </Typography.Text>
                   </Table.Summary.Cell>
+                  <Table.Summary.Cell index={4} colSpan={4} />
                 </Table.Summary.Row>
               )}
             />
@@ -1094,7 +1116,7 @@ export function SalesDashboardPage() {
                   value={salesReturnRange}
                   onChange={(nextRange) => {
                     if (!nextRange || !nextRange[0] || !nextRange[1]) {
-                      setSalesReturnRange(getTodayRange());
+                      setSalesReturnRange(getYearToDateRange());
                       return;
                     }
                     setSalesReturnRange([nextRange[0].startOf("day"), nextRange[1].endOf("day")]);

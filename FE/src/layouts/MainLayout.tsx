@@ -23,6 +23,7 @@ const breadcrumbMap: Record<string, string[]> = {
   [ROUTES.DASHBOARD]: ["Tổng quan"],
   [ROUTES.MASTER_DATA]: ["Danh mục", "Hàng hóa"],
   [ROUTES.PRODUCTS]: ["Danh mục", "Hàng hóa"],
+  [ROUTES.WAREHOUSES]: ["Danh mục", "Kho"],
   [ROUTES.CUSTOMERS]: ["Danh mục", "Khách hàng"],
   [ROUTES.SUPPLIERS]: ["Danh mục", "Nhà cung cấp"],
   [ROUTES.PARTNERS]: ["Danh mục", "Đối tác"],
@@ -52,6 +53,7 @@ export function MainLayout() {
         label: "Danh mục",
         children: [
           { key: ROUTES.PRODUCTS, label: "Hàng hóa" },
+          { key: ROUTES.WAREHOUSES, label: "Kho" },
           { key: ROUTES.CUSTOMERS, label: "Khách hàng" },
           { key: ROUTES.SUPPLIERS, label: "Nhà cung cấp" }
         ]
@@ -81,6 +83,9 @@ export function MainLayout() {
   const selectedMenuKey = useMemo(() => {
     if (location.pathname.startsWith(ROUTES.PRODUCTS)) {
       return ROUTES.PRODUCTS;
+    }
+    if (location.pathname.startsWith(ROUTES.WAREHOUSES)) {
+      return ROUTES.WAREHOUSES;
     }
     if (location.pathname.startsWith(ROUTES.PARTNERS)) {
       if (partnerGroup === "SUPPLIER") {

@@ -194,6 +194,7 @@ model Product {
   categoryId      String?   @map("category_id") @db.Uuid
   unitId          String?   @map("unit_id") @db.Uuid
   unitName        String    @default("unit") @map("unit_name") @db.VarChar(32)
+  warehouseId     String?   @map("warehouse_id") @db.Uuid
   warehouseName   String?   @map("warehouse_name") @db.VarChar(128)
   conversionRatio Decimal   @default(1) @map("conversion_ratio") @db.Decimal(18, 6)
   costPrice       Decimal   @default(0) @map("cost_price") @db.Decimal(18, 4)
@@ -207,11 +208,25 @@ model Product {
   children           Product[]           @relation("ProductParent")
   category           Category?           @relation(fields: [categoryId], references: [id])
   unit               Unit?               @relation(fields: [unitId], references: [id])
+  warehouse          Warehouse?          @relation(fields: [warehouseId], references: [id])
   voucherItems       VoucherItem[]
   inventoryMovements InventoryMovement[]
   quotationDetails   QuotationDetail[]
 
+  @@index([warehouseId], map: "products_warehouse_id_idx")
   @@map("products")
+}
+
+model Warehouse {
+  id        String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String    @unique @db.VarChar(128)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  products Product[]
+
+  @@map("warehouses")
 }
 
 model Unit {

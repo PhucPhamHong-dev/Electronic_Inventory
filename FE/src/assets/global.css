@@ -469,8 +469,14 @@ body,
   border-bottom: 1px solid #d9def7;
 }
 
+.sales-voucher-drawer .ant-drawer-header-title {
+  width: 100%;
+  justify-content: flex-end;
+}
+
 .sales-voucher-drawer .ant-drawer-body {
   background: #eef0ff;
+  overflow-x: hidden;
 }
 
 .sales-voucher-drawer .ant-input,
@@ -492,7 +498,8 @@ body,
 .sales-voucher-screen {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  overflow-x: hidden;
 }
 
 .sales-voucher-header-strip {
@@ -571,7 +578,7 @@ body,
 }
 
 .sales-voucher-form .ant-form-item {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .sales-voucher-form .ant-form-item-label {
@@ -588,7 +595,7 @@ body,
 .sales-voucher-meta-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 290px;
-  gap: 16px;
+  gap: 12px;
 }
 
 .sales-voucher-meta-layout-misa {
@@ -596,7 +603,7 @@ body,
 }
 
 .sales-voucher-panel {
-  padding: 12px;
+  padding: 8px;
   border: 1px solid #cfd5f3;
   background: #eef0ff;
 }
@@ -727,7 +734,7 @@ body,
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .sales-voucher-table-footer-misa {
@@ -742,7 +749,25 @@ body,
 }
 
 .sales-voucher-summary-block {
-  min-width: 320px;
+  min-width: 240px;
+}
+
+.voucher-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+.voucher-drawer-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f1f1f;
+}
+
+.voucher-drawer-close {
+  color: #1f1f1f;
 }
 
 .sales-return-side-hint {
@@ -1376,6 +1401,37 @@ body,
   gap: 16px;
 }
 
+.misa-import__source-summary {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid #e2e6ff;
+  background: #f7f8ff;
+}
+
+.misa-import__source-summary-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #1f1f1f;
+}
+
+.misa-import__source-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.misa-import__source-summary-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.misa-import__source-summary-value {
+  font-weight: 600;
+  color: #1f1f1f;
+}
+
 .misa-import__table .ant-table-thead > tr > th {
   background: #dfe3ff !important;
   color: #1f1f1f;
@@ -1681,6 +1737,7 @@ body,
   }
 
   .misa-import__source-grid,
+  .misa-import__source-summary-grid,
   .misa-import__result-grid {
     grid-template-columns: 1fr;
   }
@@ -2217,6 +2274,7 @@ body,
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .sales-report-table .ant-table-cell {

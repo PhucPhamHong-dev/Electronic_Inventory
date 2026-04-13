@@ -8,6 +8,7 @@ export interface ListPartnersQueryDto {
   type?: PartnerTypeValue;
   group?: PartnerGroupValue;
   debtOnly?: boolean;
+  debtStatus?: "HAS_DEBT" | "NO_DEBT";
 }
 
 export interface CreatePartnerDto {

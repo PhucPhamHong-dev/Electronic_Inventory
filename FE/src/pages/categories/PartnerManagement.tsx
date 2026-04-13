@@ -7,7 +7,7 @@ import {
   UploadOutlined
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Checkbox, ConfigProvider, Dropdown, Input, Popconfirm, Space, Table, Typography, notification } from "antd";
+import { Button, ConfigProvider, Dropdown, Input, Popconfirm, Space, Table, Typography, notification } from "antd";
 import type { MenuProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import debounce from "lodash.debounce";
@@ -68,7 +68,7 @@ export function PartnerManagementPage() {
   const [pageSize, setPageSize] = useState(20);
   const [keyword, setKeyword] = useState("");
   const [keywordInput, setKeywordInput] = useState("");
-  const [debtOnly, setDebtOnly] = useState(false);
+  const [debtStatus, setDebtStatus] = useState<"HAS_DEBT" | "NO_DEBT" | "ALL">("ALL");
   const [selectedPartnerRowKeys, setSelectedPartnerRowKeys] = useState<string[]>([]);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [openModal, setOpenModal] = useState(false);
@@ -89,20 +89,20 @@ export function PartnerManagementPage() {
     setPage(1);
     setKeyword("");
     setKeywordInput("");
-    setDebtOnly(false);
+    setDebtStatus("ALL");
     setSelectedPartnerRowKeys([]);
     setActiveRowId(null);
   }, [activeGroup]);
 
   const partnersQuery = useQuery({
-    queryKey: ["partners", activeGroup, page, pageSize, keyword, debtOnly],
+    queryKey: ["partners", activeGroup, page, pageSize, keyword, debtStatus],
     queryFn: () =>
       fetchPartners({
         page,
         pageSize,
         keyword,
         group: activeGroup,
-        debtOnly: activeGroup === "CUSTOMER" && debtOnly ? true : undefined
+        debtStatus: debtStatus === "ALL" ? undefined : debtStatus
       })
   });
 
@@ -544,9 +544,24 @@ export function PartnerManagementPage() {
             <Button onClick={() => setSelectedPartnerRowKeys((partnersQuery.data?.items ?? []).map((item) => item.id))}>
               Thực hiện hàng loạt
             </Button>
-            <Button>
-              Lọc <DownOutlined />
-            </Button>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: "ALL", label: "Tất cả" },
+                  { key: "HAS_DEBT", label: "Có nợ" },
+                  { key: "NO_DEBT", label: "Hết nợ" }
+                ],
+                onClick: ({ key }) => {
+                  setDebtStatus(key as "HAS_DEBT" | "NO_DEBT" | "ALL");
+                  setPage(1);
+                }
+              }}
+              trigger={["click"]}
+            >
+              <Button>
+                Lọc <DownOutlined />
+              </Button>
+            </Dropdown>
           </Space>
           <Space>
             <Input
@@ -561,17 +576,6 @@ export function PartnerManagementPage() {
                 debouncedSearch(value);
               }}
             />
-            {activeGroup === "CUSTOMER" ? (
-              <Checkbox
-                checked={debtOnly}
-                onChange={(event) => {
-                  setDebtOnly(event.target.checked);
-                  setPage(1);
-                }}
-              >
-                Chỉ khách còn nợ
-              </Checkbox>
-            ) : null}
             <Button icon={<ReloadOutlined />} onClick={() => void partnersQuery.refetch()} />
             <Button icon={<UploadOutlined />} onClick={() => setOpenImportModal(true)}>
               Nhập từ Excel

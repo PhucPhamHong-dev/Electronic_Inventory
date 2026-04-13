@@ -576,6 +576,8 @@ export function SalesReportsTab() {
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [partnerKeyword, setPartnerKeyword] = useState("");
   const [tableKeyword, setTableKeyword] = useState("");
+  const [tablePartnerKeyword, setTablePartnerKeyword] = useState("");
+  const [tableProductKeyword, setTableProductKeyword] = useState("");
   const [selectedPartnerIds, setSelectedPartnerIds] = useState<string[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [productKeyword, setProductKeyword] = useState("");
@@ -600,7 +602,7 @@ export function SalesReportsTab() {
   const partnerGroup =
     reportType === "SO_CHI_TIET_MUA_HANG" || reportType === "TONG_HOP_CONG_NO_NCC" ? "SUPPLIER" : "CUSTOMER";
   const usesPartnerFilter = reportType !== MATERIAL_REPORT_TYPE;
-  const usesProductFilter = DETAIL_REPORT_TYPES.includes(reportType);
+  const usesProductFilter = DETAIL_REPORT_TYPES.includes(reportType) || reportType === MATERIAL_REPORT_TYPE;
 
   const partnersQuery = useQuery({
     queryKey: ["report-partners", partnerGroup],
@@ -679,6 +681,8 @@ export function SalesReportsTab() {
     setProductKeyword("");
     setIsMultiPartnerSelect(true);
     setTableKeyword("");
+    setTablePartnerKeyword("");
+    setTableProductKeyword("");
     setReportData(null);
     setActiveTemplateId(null);
     setActiveTemplateName("Mẫu chuẩn");
@@ -736,7 +740,8 @@ export function SalesReportsTab() {
     filtersQuery.isFetching,
     parameterForm,
     reportType,
-    usesPartnerFilter
+    usesPartnerFilter,
+    usesProductFilter
   ]);
 
   useEffect(() => {
@@ -810,14 +815,22 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       return [];
     }
 
-    const keyword = tableKeyword.trim().toLowerCase();
+    const partnerKey = tablePartnerKeyword.trim().toLowerCase();
+    const productKey = tableProductKeyword.trim().toLowerCase();
     let rows = reportData.rows.filter((row) => {
-      if (!keyword) {
-        return true;
+      if (partnerKey) {
+        const partnerText = `${row.partnerCode ?? ""} ${row.partnerName ?? ""}`.toLowerCase();
+        if (!partnerText.includes(partnerKey)) {
+          return false;
+        }
       }
-      return `${row.voucherNo ?? ""} ${row.partnerCode ?? ""} ${row.partnerName ?? ""} ${row.skuCode} ${row.productName} ${row.note ?? ""} ${paymentStatusLabelMap[row.paymentStatus]}`
-        .toLowerCase()
-        .includes(keyword);
+      if (productKey) {
+        const productText = `${row.skuCode} ${row.productName}`.toLowerCase();
+        if (!productText.includes(productKey)) {
+          return false;
+        }
+      }
+      return true;
     });
 
     if (groupByPartner) {
@@ -833,7 +846,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
     }
 
     return rows;
-  }, [groupByPartner, reportData, tableKeyword]);
+  }, [groupByPartner, reportData, tablePartnerKeyword, tableProductKeyword]);
 
   const debtRows = useMemo(() => {
     if (!isDebtSummaryReport(reportData)) {
@@ -852,16 +865,24 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
     if (!isMaterialReport(reportData)) {
       return [];
     }
-    const keyword = tableKeyword.trim().toLowerCase();
+    const partnerKey = tablePartnerKeyword.trim().toLowerCase();
+    const productKey = tableProductKeyword.trim().toLowerCase();
     return reportData.rows.filter((row) => {
-      if (!keyword) {
-        return true;
+      if (partnerKey) {
+        const partnerText = `${row.note ?? ""} ${row.voucherNo ?? ""}`.toLowerCase();
+        if (!partnerText.includes(partnerKey)) {
+          return false;
+        }
       }
-      return `${row.warehouseName} ${row.skuCode} ${row.productName} ${row.voucherNo ?? ""} ${row.note ?? ""}`
-        .toLowerCase()
-        .includes(keyword);
+      if (productKey) {
+        const productText = `${row.skuCode} ${row.productName}`.toLowerCase();
+        if (!productText.includes(productKey)) {
+          return false;
+        }
+      }
+      return true;
     });
-  }, [reportData, tableKeyword]);
+  }, [reportData, tablePartnerKeyword, tableProductKeyword]);
 
   const partnerSpanByIndex = useMemo(() => {
     if (!groupByPartner || !detailRows.length) {
@@ -1310,8 +1331,14 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
 
   async function runReportQuery(): Promise<void> {
     const values = await parameterForm.validateFields();
-    const fromDate = values.dateRange?.[0]?.startOf("day").toISOString();
-    const toDate = values.dateRange?.[1]?.endOf("day").toISOString();
+    const defaultFrom = dayjs().startOf("year");
+    const defaultTo = dayjs().endOf("day");
+    const range = values.dateRange ?? [defaultFrom, defaultTo];
+    const fromDate = range[0]?.startOf("day").toISOString();
+    const toDate = range[1]?.endOf("day").toISOString();
+    if (!values.dateRange) {
+      parameterForm.setFieldsValue({ dateRange: [defaultFrom, defaultTo] });
+    }
     const partnerIds = usesPartnerFilter && selectedPartnerIds.length ? selectedPartnerIds : undefined;
     const productIds = usesProductFilter && selectedProductId ? [selectedProductId] : undefined;
 
@@ -2303,14 +2330,35 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
         {isDetailReport(reportData) || isDebtSummaryReport(reportData) || isMaterialReport(reportData) ? (
           <div className="sales-report-grid-wrap">
             <div className="sales-report-grid-toolbar">
-              <Input
-                allowClear
-                prefix={<SearchOutlined />}
-                placeholder="Tìm kiếm trong báo cáo"
-                style={{ width: 320 }}
-                value={tableKeyword}
-                onChange={(event) => setTableKeyword(event.target.value)}
-              />
+              {isDetailReport(reportData) || isMaterialReport(reportData) ? (
+                <Space wrap>
+                  <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="Tìm khách hàng/NCC"
+                    style={{ width: 260 }}
+                    value={tablePartnerKeyword}
+                    onChange={(event) => setTablePartnerKeyword(event.target.value)}
+                  />
+                  <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="Tìm tên hàng hóa"
+                    style={{ width: 260 }}
+                    value={tableProductKeyword}
+                    onChange={(event) => setTableProductKeyword(event.target.value)}
+                  />
+                </Space>
+              ) : (
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  placeholder="Tìm kiếm trong báo cáo"
+                  style={{ width: 320 }}
+                  value={tableKeyword}
+                  onChange={(event) => setTableKeyword(event.target.value)}
+                />
+              )}
               <Space>
                 <Tag color="processing">{`Khổ in: ${pageSize === "A4_LANDSCAPE" ? "A4 ngang" : "A4 dọc"}`}</Tag>
                 {isDetailReport(reportData) ? (
@@ -2519,28 +2567,29 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
           </div>
         </Form>
 
+        {usesProductFilter ? (
+          <div className="sales-report-parameter-grid">
+            <Form.Item label="Tên hàng hóa">
+              <Select
+                showSearch
+                allowClear
+                placeholder="Chọn hàng hóa"
+                value={selectedProductId ?? undefined}
+                style={{ width: "100%" }}
+                filterOption={false}
+                onSearch={(value) => setProductKeyword(value)}
+                onChange={(value) => setSelectedProductId(value ?? null)}
+                options={(productsQuery.data?.items ?? []).map((item) => ({
+                  label: `${item.skuCode} - ${item.name}`,
+                  value: item.id
+                }))}
+              />
+            </Form.Item>
+          </div>
+        ) : null}
+
         {usesPartnerFilter ? (
           <>
-            {usesProductFilter ? (
-              <div className="sales-report-parameter-grid">
-                <Form.Item label="Tên hàng hóa">
-                  <Select
-                    showSearch
-                    allowClear
-                    placeholder="Chọn hàng hóa"
-                    value={selectedProductId ?? undefined}
-                    style={{ width: "100%" }}
-                    filterOption={false}
-                    onSearch={(value) => setProductKeyword(value)}
-                    onChange={(value) => setSelectedProductId(value ?? null)}
-                    options={(productsQuery.data?.items ?? []).map((item) => ({
-                      label: `${item.skuCode} - ${item.name}`,
-                      value: item.id
-                    }))}
-                  />
-                </Form.Item>
-              </div>
-            ) : null}
             <div className="sales-report-partner-toolbar">
               <Space>
                 <Checkbox

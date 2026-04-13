@@ -1,6 +1,6 @@
 import { EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, UploadOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Form, Input, InputNumber, Modal, Space, Table, Typography, message } from "antd";
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Table, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import debounce from "lodash.debounce";
 import { useEffect, useMemo, useState } from "react";
@@ -8,6 +8,7 @@ import { ImportWizardModal } from "../components/ImportWizardModal";
 import {
   commitProductImport,
   createProduct,
+  fetchWarehouses,
   fetchProducts,
   type ProductImportMappedData,
   updateProduct,
@@ -20,7 +21,7 @@ interface ProductFormValues {
   skuCode: string;
   name: string;
   unitName?: string;
-  warehouseName?: string;
+  warehouseId?: string;
   costPrice?: number;
   sellingPrice?: number;
 }
@@ -50,6 +51,11 @@ export function ProductsPage() {
   const productsQuery = useQuery({
     queryKey: ["products", page, pageSize, keyword],
     queryFn: () => fetchProducts({ page, pageSize, keyword })
+  });
+
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses"],
+    queryFn: () => fetchWarehouses()
   });
 
   useEffect(() => {
@@ -105,7 +111,7 @@ export function ProductsPage() {
       render: (value?: string) => value || "-"
     },
     {
-      title: "Kho ngầm định",
+      title: "Kho",
       dataIndex: "warehouseName",
       key: "warehouseName",
       width: 160,
@@ -151,7 +157,7 @@ export function ProductsPage() {
               skuCode: record.skuCode,
               name: record.name,
               unitName: record.unitName,
-              warehouseName: record.warehouseName ?? undefined,
+              warehouseId: record.warehouseId ?? undefined,
               costPrice: record.costPrice,
               sellingPrice: record.sellingPrice
             });
@@ -286,8 +292,15 @@ export function ProductsPage() {
           <Form.Item label="Đơn vị tính" name="unitName">
             <Input placeholder="Ví dụ: Cái, Mét, Cuộn..." />
           </Form.Item>
-          <Form.Item label="Kho ngầm định" name="warehouseName">
-            <Input placeholder="Ví dụ: Kho tổng" />
+          <Form.Item label="Kho" name="warehouseId">
+            <Select
+              allowClear
+              placeholder="Kho ngầm định"
+              loading={warehousesQuery.isFetching}
+              options={(warehousesQuery.data ?? [])
+                .filter((item) => item.warehouseKey !== "DEFAULT")
+                .map((item) => ({ label: item.warehouseName, value: item.warehouseKey }))}
+            />
           </Form.Item>
           <Form.Item label="Giá vốn" name="costPrice">
             <InputNumber min={0} style={{ width: "100%" }} />
@@ -302,6 +315,8 @@ export function ProductsPage() {
         open={openImportModal}
         title="Nhập hàng hóa từ Excel"
         entityLabel="Hàng hóa"
+        showSourceSummary
+        sourceSummaryLabel="Hàng hóa"
         systemFields={[
           {
             key: "skuCode",

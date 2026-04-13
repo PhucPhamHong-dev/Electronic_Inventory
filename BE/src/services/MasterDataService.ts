@@ -23,6 +23,7 @@ interface CreateProductInput {
   costPrice?: number;
   sellingPrice?: number;
   unitName?: string;
+  warehouseId?: string;
   warehouseName?: string;
 }
 
@@ -32,6 +33,7 @@ interface UpdateProductInput {
   costPrice?: number;
   sellingPrice?: number;
   unitName?: string;
+  warehouseId?: string;
   warehouseName?: string;
 }
 
@@ -143,6 +145,160 @@ export class MasterDataService {
 
   constructor(private readonly db: PrismaClient = prisma) {}
 
+  async listWarehouses() {
+    const [warehouses, defaultCount] = await Promise.all([
+      this.db.$queryRaw<
+        Array<{
+          id: string;
+          name: string;
+          productCount: bigint;
+        }>
+      >(Prisma.sql`
+        SELECT
+          w."id",
+          w."name",
+          COUNT(p."id")::bigint AS "productCount"
+        FROM "public"."warehouses" w
+        LEFT JOIN "public"."products" p
+          ON p."warehouse_id" = w."id"
+          AND p."deleted_at" IS NULL
+        WHERE w."deleted_at" IS NULL
+        GROUP BY w."id", w."name"
+        ORDER BY w."name" ASC
+      `),
+      this.db.product.count({
+        where: { deletedAt: null, warehouseId: null }
+      })
+    ]);
+
+    const items = warehouses.map((warehouse) => ({
+      warehouseKey: warehouse.id,
+      warehouseName: warehouse.name,
+      productCount: Number(warehouse.productCount)
+    }));
+
+    if (defaultCount > 0) {
+      items.unshift({
+        warehouseKey: "DEFAULT",
+        warehouseName: "Kho ngầm định",
+        productCount: defaultCount
+      });
+    }
+
+    return items;
+  }
+
+  async listWarehouseProducts(warehouseKey: string) {
+    if (warehouseKey !== "DEFAULT") {
+      const exists = await this.db.warehouse.findFirst({
+        where: { id: warehouseKey, deletedAt: null },
+        select: { id: true }
+      });
+      if (!exists) {
+        throw new AppError("Kho khong ton tai", 404, "NOT_FOUND");
+      }
+    }
+
+    const rows = await this.db.product.findMany({
+      where: {
+        deletedAt: null,
+        warehouseId: warehouseKey === "DEFAULT" ? null : warehouseKey
+      },
+      select: {
+        id: true,
+        skuCode: true,
+        name: true,
+        unitName: true,
+        warehouseName: true,
+        stockQuantity: true,
+        costPrice: true
+      },
+      orderBy: { skuCode: "asc" }
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      skuCode: row.skuCode,
+      name: row.name,
+      unitName: row.unitName,
+      warehouseName: row.warehouseName,
+      stockQuantity: Number(row.stockQuantity ?? 0),
+      costPrice: Number(row.costPrice ?? 0)
+    }));
+  }
+
+  async createWarehouse(name: string) {
+    const normalized = this.normalizeRequiredText(name);
+    if (!normalized) {
+      throw new AppError("Ten kho khong duoc de trong", 400, "VALIDATION_ERROR");
+    }
+
+    try {
+      const created = await this.db.warehouse.create({
+        data: { name: normalized },
+        select: { id: true, name: true }
+      });
+      return { id: created.id, name: created.name };
+    } catch (error) {
+      throw new AppError("Khong the tao kho. Ten kho co the da ton tai.", 400, "VALIDATION_ERROR", error);
+    }
+  }
+
+  async updateWarehouse(warehouseId: string, name: string) {
+    const normalized = this.normalizeRequiredText(name);
+    if (!normalized) {
+      throw new AppError("Ten kho khong duoc de trong", 400, "VALIDATION_ERROR");
+    }
+
+    const existing = await this.db.warehouse.findFirst({
+      where: { id: warehouseId, deletedAt: null },
+      select: { id: true }
+    });
+    if (!existing) {
+      throw new AppError("Kho khong ton tai", 404, "NOT_FOUND");
+    }
+
+    try {
+      const updated = await this.db.warehouse.update({
+        where: { id: warehouseId },
+        data: { name: normalized },
+        select: { id: true, name: true }
+      });
+
+      await this.db.product.updateMany({
+        where: { warehouseId: warehouseId, deletedAt: null },
+        data: { warehouseName: normalized }
+      });
+
+      return { id: updated.id, name: updated.name };
+    } catch (error) {
+      throw new AppError("Khong the cap nhat kho. Ten kho co the da ton tai.", 400, "VALIDATION_ERROR", error);
+    }
+  }
+
+  async deleteWarehouse(warehouseId: string) {
+    const existing = await this.db.warehouse.findFirst({
+      where: { id: warehouseId, deletedAt: null },
+      select: { id: true }
+    });
+    if (!existing) {
+      throw new AppError("Kho khong ton tai", 404, "NOT_FOUND");
+    }
+
+    await this.db.$transaction(async (tx) => {
+      await tx.warehouse.update({
+        where: { id: warehouseId },
+        data: { deletedAt: new Date() }
+      });
+      await tx.product.updateMany({
+        where: { warehouseId: warehouseId },
+        data: { warehouseId: null, warehouseName: null }
+      });
+    });
+
+    return { success: true };
+  }
+
   async listProducts(input: PaginationInput) {
     const skip = (input.page - 1) * input.pageSize;
     const keyword = input.keyword?.trim();
@@ -165,7 +321,9 @@ export class MasterDataService {
           skuCode: true,
           name: true,
           unitName: true,
+          warehouseId: true,
           warehouseName: true,
+          warehouse: { select: { name: true } },
           costPrice: true,
           sellingPrice: true,
           stockQuantity: true
@@ -185,7 +343,8 @@ export class MasterDataService {
         skuCode: item.skuCode,
         name: item.name,
         unitName: item.unitName,
-        warehouseName: item.warehouseName,
+        warehouseId: item.warehouseId,
+        warehouseName: item.warehouseName ?? item.warehouse?.name ?? null,
         costPrice: Number(item.costPrice),
         sellingPrice: Number(item.sellingPrice),
         stockQuantity: Number(item.stockQuantity)
@@ -204,13 +363,16 @@ export class MasterDataService {
         select: { id: true }
       });
 
+      const warehouse = await this.resolveWarehouse(payload.warehouseId, payload.warehouseName);
+
       const created = await this.db.product.create({
         data: {
           skuCode: payload.skuCode.trim(),
           name: payload.name.trim(),
           unitId: unit.id,
           unitName: normalizedUnitName,
-          warehouseName: this.normalizeNullableText(payload.warehouseName),
+          warehouseId: warehouse?.id ?? null,
+          warehouseName: warehouse?.name ?? this.normalizeNullableText(payload.warehouseName),
           costPrice: payload.costPrice ?? 0,
           sellingPrice: payload.sellingPrice ?? 0
         },
@@ -219,6 +381,7 @@ export class MasterDataService {
           skuCode: true,
           name: true,
           unitName: true,
+          warehouseId: true,
           warehouseName: true,
           costPrice: true,
           sellingPrice: true,
@@ -230,6 +393,7 @@ export class MasterDataService {
         skuCode: created.skuCode,
         name: created.name,
         unitName: created.unitName,
+        warehouseId: created.warehouseId,
         warehouseName: created.warehouseName,
         costPrice: Number(created.costPrice),
         sellingPrice: Number(created.sellingPrice),
@@ -258,6 +422,7 @@ export class MasterDataService {
       name?: string;
       unitId?: string;
       unitName?: string;
+      warehouseId?: string | null;
       warehouseName?: string | null;
       costPrice?: number;
       sellingPrice?: number;
@@ -291,8 +456,10 @@ export class MasterDataService {
       data.unitName = normalizedUnitName;
     }
 
-    if (payload.warehouseName !== undefined) {
-      data.warehouseName = this.normalizeNullableText(payload.warehouseName);
+    if (payload.warehouseId !== undefined || payload.warehouseName !== undefined) {
+      const warehouse = await this.resolveWarehouse(payload.warehouseId, payload.warehouseName);
+      data.warehouseId = warehouse?.id ?? null;
+      data.warehouseName = warehouse?.name ?? this.normalizeNullableText(payload.warehouseName);
     }
 
     if (payload.costPrice !== undefined) {
@@ -322,6 +489,7 @@ export class MasterDataService {
           skuCode: true,
           name: true,
           unitName: true,
+          warehouseId: true,
           warehouseName: true,
           costPrice: true,
           sellingPrice: true,
@@ -334,6 +502,7 @@ export class MasterDataService {
         skuCode: updated.skuCode,
         name: updated.name,
         unitName: updated.unitName,
+        warehouseId: updated.warehouseId,
         warehouseName: updated.warehouseName,
         costPrice: Number(updated.costPrice),
         sellingPrice: Number(updated.sellingPrice),
@@ -353,6 +522,7 @@ export class MasterDataService {
       async (tx) => {
         let inserted = 0;
         let updated = 0;
+        const warehouseCache = new Map<string, { id: string; name: string }>();
 
         for (const row of rows) {
           const skuCode = row.skuCode.trim();
@@ -379,6 +549,7 @@ export class MasterDataService {
 
           const sellingPrice = Number.isFinite(row.sellingPrice) ? Math.max(row.sellingPrice as number, 0) : 0;
           const warehouseName = this.normalizeNullableText(row.warehouseName);
+          const warehouse = await this.resolveWarehouseInTx(tx, warehouseName, warehouseCache);
 
           if (existing) {
             await tx.product.update({
@@ -387,7 +558,8 @@ export class MasterDataService {
                 name,
                 unitId: unit.id,
                 unitName: normalizedUnitName,
-                warehouseName,
+                warehouseId: warehouse?.id ?? null,
+                warehouseName: warehouse?.name ?? warehouseName,
                 sellingPrice: this.decimal(sellingPrice, 4)
               }
             });
@@ -399,7 +571,8 @@ export class MasterDataService {
                 name,
                 unitId: unit.id,
                 unitName: normalizedUnitName,
-                warehouseName,
+                warehouseId: warehouse?.id ?? null,
+                warehouseName: warehouse?.name ?? warehouseName,
                 sellingPrice: this.decimal(sellingPrice, 4)
               }
             });
@@ -524,6 +697,7 @@ export class MasterDataService {
       async (tx) => {
         let inserted = 0;
         let updated = 0;
+        const warehouseCache = new Map<string, { id: string; name: string }>();
 
         for (const row of validRows) {
           const mapped = row.mappedData;
@@ -534,6 +708,8 @@ export class MasterDataService {
             create: { name: unitName },
             select: { id: true }
           });
+          const normalizedWarehouseName = this.normalizeNullableText(mapped.warehouseName);
+          const warehouse = await this.resolveWarehouseInTx(tx, normalizedWarehouseName, warehouseCache);
 
           const existing = await tx.product.findUnique({
             where: { skuCode: mapped.skuCode },
@@ -545,7 +721,8 @@ export class MasterDataService {
             name: mapped.name,
             unitId: unit.id,
             unitName,
-            warehouseName: this.normalizeNullableText(mapped.warehouseName),
+            warehouseId: warehouse?.id ?? null,
+            warehouseName: warehouse?.name ?? normalizedWarehouseName,
             sellingPrice: this.decimal(Math.max(mapped.sellingPrice ?? 0, 0), 4)
           };
 
@@ -568,6 +745,7 @@ export class MasterDataService {
                 name: productPayload.name,
                 unitId: productPayload.unitId,
                 unitName: productPayload.unitName,
+                warehouseId: productPayload.warehouseId,
                 warehouseName: productPayload.warehouseName,
                 sellingPrice: productPayload.sellingPrice
               }
@@ -582,6 +760,7 @@ export class MasterDataService {
               name: productPayload.name,
               unitId: productPayload.unitId,
               unitName: productPayload.unitName,
+              warehouseId: productPayload.warehouseId,
               warehouseName: productPayload.warehouseName,
               sellingPrice: productPayload.sellingPrice
             },
@@ -864,11 +1043,19 @@ export class MasterDataService {
     const skip = (input.page - 1) * input.pageSize;
     const keyword = input.keyword?.trim();
     const partnerTypeIn = this.resolvePartnerTypeFilter(input.type ?? input.group);
+    const debtFilter =
+      input.debtStatus === "HAS_DEBT"
+        ? { gt: 0 }
+        : input.debtStatus === "NO_DEBT"
+          ? { lte: 0 }
+          : input.debtOnly
+            ? { gt: 0 }
+            : undefined;
 
     const where = {
       deletedAt: null,
       partnerType: partnerTypeIn ? { in: partnerTypeIn } : undefined,
-      currentDebt: input.debtOnly ? { gt: 0 } : undefined,
+      currentDebt: debtFilter,
       OR: keyword
         ? [
             { code: { contains: keyword, mode: "insensitive" as const } },
@@ -1316,6 +1503,67 @@ export class MasterDataService {
     }
     const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private async resolveWarehouse(warehouseId?: string, warehouseName?: string) {
+    if (warehouseId) {
+      const warehouse = await this.db.warehouse.findFirst({
+        where: { id: warehouseId, deletedAt: null },
+        select: { id: true, name: true }
+      });
+      if (!warehouse) {
+        throw new AppError("Kho khong ton tai", 404, "NOT_FOUND");
+      }
+      return warehouse;
+    }
+
+    const normalizedName = this.normalizeNullableText(warehouseName);
+    if (!normalizedName) {
+      return null;
+    }
+
+    const existing = await this.db.warehouse.findFirst({
+      where: { name: normalizedName, deletedAt: null },
+      select: { id: true, name: true }
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const created = await this.db.warehouse.create({
+      data: { name: normalizedName },
+      select: { id: true, name: true }
+    });
+    return created;
+  }
+
+  private async resolveWarehouseInTx(
+    tx: Prisma.TransactionClient,
+    warehouseName: string | null | undefined,
+    cache: Map<string, { id: string; name: string }>
+  ) {
+    const normalized = this.normalizeNullableText(warehouseName);
+    if (!normalized) {
+      return null;
+    }
+    const cached = cache.get(normalized);
+    if (cached) {
+      return cached;
+    }
+    const existing = await tx.warehouse.findFirst({
+      where: { name: normalized, deletedAt: null },
+      select: { id: true, name: true }
+    });
+    if (existing) {
+      cache.set(normalized, existing);
+      return existing;
+    }
+    const created = await tx.warehouse.create({
+      data: { name: normalized },
+      select: { id: true, name: true }
+    });
+    cache.set(normalized, created);
+    return created;
   }
 
   private async generatePartnerCode(target: PartnerTypeValue | PartnerGroupValue): Promise<string> {

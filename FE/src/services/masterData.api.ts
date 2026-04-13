@@ -60,12 +60,70 @@ export interface MasterListResponse<T> {
   total: number;
 }
 
+export interface WarehouseSummary {
+  warehouseKey: string;
+  warehouseName: string;
+  productCount: number;
+}
+
+export interface WarehouseProductRow {
+  id: string;
+  skuCode: string;
+  name: string;
+  unitName: string;
+  warehouseName?: string | null;
+  stockQuantity: number;
+  costPrice: number;
+}
+
 export async function fetchProducts(params: { page: number; pageSize: number; keyword?: string }) {
   const response = await axiosClient.get<ApiResponse<MasterListResponse<ProductOption>>>(API_ENDPOINTS.PRODUCTS, {
     params
   });
   if (!response.data.success || !response.data.data) {
     throw new Error(response.data.error?.message || "Fetch products failed");
+  }
+  return response.data.data;
+}
+
+export async function fetchWarehouses() {
+  const response = await axiosClient.get<ApiResponse<WarehouseSummary[]>>(API_ENDPOINTS.WAREHOUSES);
+  if (!response.data.success || !response.data.data) {
+    throw new Error(response.data.error?.message || "Fetch warehouses failed");
+  }
+  return response.data.data;
+}
+
+export async function createWarehouse(payload: { name: string }) {
+  const response = await axiosClient.post<ApiResponse<{ id: string; name: string }>>(API_ENDPOINTS.WAREHOUSES, payload);
+  if (!response.data.success || !response.data.data) {
+    throw new Error(response.data.error?.message || "Create warehouse failed");
+  }
+  return response.data.data;
+}
+
+export async function updateWarehouse(id: string, payload: { name: string }) {
+  const response = await axiosClient.put<ApiResponse<{ id: string; name: string }>>(API_ENDPOINTS.WAREHOUSE_BY_ID(id), payload);
+  if (!response.data.success || !response.data.data) {
+    throw new Error(response.data.error?.message || "Update warehouse failed");
+  }
+  return response.data.data;
+}
+
+export async function deleteWarehouse(id: string) {
+  const response = await axiosClient.delete<ApiResponse<{ success: boolean }>>(API_ENDPOINTS.WAREHOUSE_BY_ID(id));
+  if (!response.data.success || !response.data.data) {
+    throw new Error(response.data.error?.message || "Delete warehouse failed");
+  }
+  return response.data.data;
+}
+
+export async function fetchWarehouseProducts(params: { warehouseKey: string }) {
+  const response = await axiosClient.get<ApiResponse<WarehouseProductRow[]>>(API_ENDPOINTS.WAREHOUSE_PRODUCTS, {
+    params
+  });
+  if (!response.data.success || !response.data.data) {
+    throw new Error(response.data.error?.message || "Fetch warehouse products failed");
   }
   return response.data.data;
 }
@@ -77,6 +135,7 @@ export async function fetchPartners(params: {
   type?: PartnerTypeValue;
   group?: PartnerGroupValue;
   debtOnly?: boolean;
+  debtStatus?: "HAS_DEBT" | "NO_DEBT";
 }) {
   const response = await axiosClient.get<ApiResponse<MasterListResponse<PartnerOption>>>(API_ENDPOINTS.PARTNERS, {
     params
@@ -93,6 +152,7 @@ export async function createProduct(payload: {
   costPrice?: number;
   sellingPrice?: number;
   unitName?: string;
+  warehouseId?: string;
   warehouseName?: string;
 }) {
   const response = await axiosClient.post<ApiResponse<ProductOption>>(API_ENDPOINTS.PRODUCTS, payload);
@@ -110,6 +170,7 @@ export async function updateProduct(
     costPrice?: number;
     sellingPrice?: number;
     unitName?: string;
+    warehouseId?: string;
     warehouseName?: string;
   }
 ) {

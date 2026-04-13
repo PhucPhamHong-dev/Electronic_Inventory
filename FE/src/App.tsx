@@ -10,6 +10,7 @@ import { CashVouchersPage } from "./pages/CashVouchers";
 import { PartnerListPage } from "./pages/PartnerList";
 import { PurchaseDashboardPage } from "./pages/PurchaseDashboard";
 import { ProductsPage } from "./pages/Products";
+import { WarehousesPage } from "./pages/Warehouses";
 import { ReportsPage } from "./pages/Reports";
 import { SalesDashboardPage } from "./pages/SalesDashboard";
 import { StockCardPage } from "./pages/StockCard";
@@ -37,6 +38,7 @@ export function App() {
         <Route path={ROUTES.CASH_VOUCHERS} element={<CashVouchersPage />} />
         <Route path={ROUTES.MASTER_DATA} element={<ProductsPage />} />
         <Route path={ROUTES.PRODUCTS} element={<ProductsPage />} />
+        <Route path={ROUTES.WAREHOUSES} element={<WarehousesPage />} />
         <Route path={ROUTES.PARTNERS} element={<PartnerListPage />} />
         <Route path={ROUTES.REPORTS} element={<ReportsPage />} />
         <Route path={ROUTES.VOUCHER_HISTORY} element={<VoucherHistoryPage />} />

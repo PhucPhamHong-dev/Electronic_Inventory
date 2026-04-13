@@ -517,9 +517,11 @@ export class ReportService {
             lte: input.toDate ? clampEndOfDay(input.toDate) : undefined
           }
         : undefined;
+    const productFilter = input.productIds?.length ? { in: input.productIds } : undefined;
 
     const movements = await this.db.inventoryMovement.findMany({
       where: {
+        productId: productFilter,
         voucher: {
           deletedAt: null,
           voucherDate: voucherDateFilter

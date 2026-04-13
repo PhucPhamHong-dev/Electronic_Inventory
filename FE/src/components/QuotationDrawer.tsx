@@ -1,5 +1,6 @@
 ﻿import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { CloseOutlined } from "@ant-design/icons";
 import { FileExcelOutlined, PrinterOutlined } from "@ant-design/icons";
 import {
   Button,
@@ -986,6 +987,12 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
   };
 
   const drawerTitle = watchedQuotationNo && watchedQuotationNo !== "Tự sinh khi lưu" ? `Báo giá ${watchedQuotationNo}` : "Báo giá";
+  const drawerHeader = (
+    <div className="voucher-drawer-header">
+      <span className="voucher-drawer-title">{drawerTitle}</span>
+      <Button type="text" className="voucher-drawer-close" icon={<CloseOutlined />} onClick={onClose} />
+    </div>
+  );
   const selectedPartner = selectedPartnerId ? partnerMap.get(selectedPartnerId) : undefined;
   const partnerModalInitialValues: Partial<PartnerFormValues> | undefined =
     partnerModalMode === "edit" && selectedPartner
@@ -1028,7 +1035,8 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
         width="100%"
         open={open}
         destroyOnClose
-        title={<span className="sales-voucher-drawer-title">{drawerTitle}</span>}
+        title={drawerHeader}
+        closable={false}
         onClose={onClose}
         rootClassName="sales-voucher-drawer quotation-entry-drawer"
         styles={{ body: { paddingBottom: 12, overflow: "hidden", display: "flex", flexDirection: "column" } }}
