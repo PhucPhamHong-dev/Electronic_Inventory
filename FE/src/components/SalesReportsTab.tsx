@@ -876,6 +876,8 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       ? reportData.summary.totalGoodsAmount
       : reportData.summary.totalNetAmount
     : 0;
+  const detailSummaryLabel =
+    reportType === "SO_CHI_TIET_MUA_HANG" ? "Tổng giá trị mua hàng" : "Tổng thanh toán";
 
   const debtRows = useMemo(() => {
     if (!isDebtSummaryReport(reportData)) {
@@ -2261,20 +2263,6 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
           </div>
         </div>
         <div className="sales-report-group">
-          <Typography.Text strong>Báo cáo công nợ khách hàng</Typography.Text>
-          <div className="sales-report-links">
-            <button
-              type="button"
-              className={`sales-report-link ${reportType === "TONG_HOP_CONG_NO" ? "sales-report-link-active" : ""}`}
-              onClick={() => {
-                setReportType("TONG_HOP_CONG_NO");
-              }}
-            >
-              Tổng hợp công nợ phải thu
-            </button>
-          </div>
-        </div>
-        <div className="sales-report-group">
           <Typography.Text strong>Báo cáo vật tư hàng hóa</Typography.Text>
           <div className="sales-report-links">
             <button
@@ -2434,7 +2422,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
                     return (
                       <Table.Summary.Row>
                         <Table.Summary.Cell index={0} colSpan={columnCount} align="right">
-                          <Typography.Text strong>{`Tổng thanh toán: ${formatCurrency(reportData.summary.totalNetAmount)}`}</Typography.Text>
+                          <Typography.Text strong>{`${detailSummaryLabel}: ${formatCurrency(detailSummaryTotal)}`}</Typography.Text>
                         </Table.Summary.Cell>
                       </Table.Summary.Row>
                     );
@@ -2451,7 +2439,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
                         <Typography.Text>{formatCurrency(reportData.summary.totalTaxAmount)}</Typography.Text>
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={3} align="right">
-                        <Typography.Text strong>{formatCurrency(reportData.summary.totalNetAmount)}</Typography.Text>
+                        <Typography.Text strong>{formatCurrency(detailSummaryTotal)}</Typography.Text>
                       </Table.Summary.Cell>
                     </Table.Summary.Row>
                   );
@@ -2895,6 +2883,11 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
           })
         }
         onCompleted={async () => {
+          if (importDomain === "PURCHASE_DETAILS") {
+            setReportType("SO_CHI_TIET_MUA_HANG");
+          } else if (importDomain === "SALES_DETAILS") {
+            setReportType("SO_CHI_TIET_BAN_HANG");
+          }
           setOpenImportModal(false);
           await runReportQuery();
         }}

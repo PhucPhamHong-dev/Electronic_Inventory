@@ -46,7 +46,8 @@ export async function analyzeImportFile(payload: {
   const response = await axiosClient.post<ApiResponse<ImportAnalyzeResponse>>(API_ENDPOINTS.IMPORT_ANALYZE, formData, {
     headers: {
       "Content-Type": "multipart/form-data"
-    }
+    },
+    timeout: 120000
   });
 
   if (!response.data.success || !response.data.data) {
@@ -61,7 +62,11 @@ export async function validateImportData<TMapped extends GenericImportMappedData
   mappingObject: Record<string, string>;
   importMode: ImportMode;
 }) {
-  const response = await axiosClient.post<ApiResponse<ImportValidationResponse<GenericImportMappedData>>>(API_ENDPOINTS.IMPORT_VALIDATE, payload);
+  const response = await axiosClient.post<ApiResponse<ImportValidationResponse<GenericImportMappedData>>>(
+    API_ENDPOINTS.IMPORT_VALIDATE,
+    payload,
+    { timeout: 120000 }
+  );
   if (!response.data.success || !response.data.data) {
     throw new Error(response.data.error?.message || "Validate import failed");
   }
@@ -79,7 +84,7 @@ export async function commitImportData<TMapped extends GenericImportMappedData>(
       inserted: number;
       updated: number;
     }>
-  >(API_ENDPOINTS.IMPORT_COMMIT, payload);
+  >(API_ENDPOINTS.IMPORT_COMMIT, payload, { timeout: 120000 });
   if (!response.data.success || !response.data.data) {
     throw new Error(response.data.error?.message || "Commit import failed");
   }
