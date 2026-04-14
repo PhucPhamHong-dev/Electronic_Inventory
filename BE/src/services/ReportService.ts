@@ -764,8 +764,8 @@ export class ReportService {
     );
     const openingMap = new Map(openingBalances.map((item) => [item.partnerId, item.openingBalance]));
 
-    const rows: DebtSummaryRow[] = partnerIds
-      .map((partnerId) => {
+    const rows = partnerIds
+      .map<DebtSummaryRow | null>((partnerId) => {
         const partner = partnerMap.get(partnerId);
         if (!partner) {
           return null;
@@ -788,7 +788,7 @@ export class ReportService {
             createdByName: null
           };
       })
-      .filter((row): row is DebtSummaryRow => Boolean(row))
+      .filter((row): row is DebtSummaryRow => row !== null)
       .filter((row) =>
         input.partnerIds?.length
           ? true

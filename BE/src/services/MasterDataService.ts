@@ -1458,7 +1458,7 @@ export class MasterDataService {
     return ["SUPPLIER", "BOTH"];
   }
 
-  private normalizeNullableText(value: string | undefined): string | null {
+  private normalizeNullableText(value: string | null | undefined): string | null {
     const normalized = value?.trim();
     return normalized ? normalized : null;
   }
