@@ -155,11 +155,11 @@ const REPORT_IMPORT_CONFIGS: Record<ReportImportDomain, ReportImportConfig> = {
       { key: "unitPrice", label: "Đơn giá", required: true, aliases: ["don gia", "gia ban"] },
       { key: "discountRate", label: "% Chiết khấu", aliases: ["chiet khau", "ck"] },
       { key: "taxRate", label: "% Thuế GTGT", aliases: ["thue gtgt", "vat"] },
-      { key: "lineAmount", label: "Tổng thanh toán", required: true, aliases: ["tong thanh toan", "thanh tien"] },
+      { key: "lineAmount", label: "Thành tiền (dòng)", required: true, aliases: ["tong thanh toan", "thanh tien"] },
       { key: "totalAmount", label: "Tổng tiền hàng", aliases: ["tong tien hang", "doanh so ban"] },
       { key: "totalDiscount", label: "Tiền chiết khấu", aliases: ["tien chiet khau"] },
       { key: "taxAmount", label: "Tiền thuế GTGT", aliases: ["tien thue"] },
-      { key: "totalNetAmount", label: "Tổng tiền thanh toán", required: true, aliases: ["tong thanh toan", "tong tien thanh toan", "thanh tien"] },
+      { key: "totalNetAmount", label: "Tổng thanh toán (toàn phiếu)", required: true, aliases: ["tong thanh toan", "tong tien thanh toan", "thanh tien"] },
       { key: "paymentStatus", label: "TT thanh toán", aliases: ["trang thai thanh toan", "tt thanh toan"] }
     ]
   },
@@ -179,11 +179,11 @@ const REPORT_IMPORT_CONFIGS: Record<ReportImportDomain, ReportImportConfig> = {
       { key: "unitPrice", label: "Đơn giá", required: true, aliases: ["don gia", "gia mua"] },
       { key: "discountRate", label: "% Chiết khấu", aliases: ["chiet khau", "ck"] },
       { key: "taxRate", label: "% Thuế GTGT", aliases: ["thue gtgt", "vat"] },
-      { key: "lineAmount", label: "Tổng thanh toán", required: true, aliases: ["tong thanh toan", "thanh tien"] },
+      { key: "lineAmount", label: "Thành tiền (dòng)", required: true, aliases: ["tong thanh toan", "thanh tien"] },
       { key: "totalAmount", label: "Tổng tiền hàng", aliases: ["tong tien hang", "doanh so ban"] },
       { key: "totalDiscount", label: "Tiền chiết khấu", aliases: ["tien chiet khau"] },
       { key: "taxAmount", label: "Tiền thuế GTGT", aliases: ["tien thue"] },
-      { key: "totalNetAmount", label: "Tổng tiền thanh toán", required: true, aliases: ["tong thanh toan", "tong tien thanh toan", "thanh tien"] },
+      { key: "totalNetAmount", label: "Tổng thanh toán (toàn phiếu)", required: true, aliases: ["tong thanh toan", "tong tien thanh toan", "thanh tien"] },
       { key: "paymentStatus", label: "TT thanh toán", aliases: ["trang thai thanh toan", "tt thanh toan"] }
     ]
   },
@@ -797,9 +797,32 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
 
   const resolvedReportTypeTag =
     reportType === MATERIAL_REPORT_TYPE ? <Tag color="geekblue">Vật tư hàng hóa</Tag> : reportTypeTag;
+  const paymentStatusLabelMapVn: Record<ReportDetailRow["paymentStatus"], string> = {
+    UNPAID: "Chưa thanh toán",
+    PARTIAL: "Thanh toán một phần",
+    PAID: "Đã thanh toán"
+  };
+
   const reportContentLoading = reportQueryMutation.isPending || autoQueryPending || filtersQuery.isFetching;
 
   const activeImportConfig = REPORT_IMPORT_CONFIGS[importDomain];
+  const resolvedImportConfig = useMemo(() => {
+    if (importDomain !== "PURCHASE_DETAILS") {
+      return activeImportConfig;
+    }
+    return {
+      ...activeImportConfig,
+      systemFields: activeImportConfig.systemFields.map((field) => {
+        if (field.key === "lineAmount") {
+          return { ...field, label: "Giá trị mua (dòng)" };
+        }
+        if (field.key === "totalNetAmount") {
+          return { ...field, label: "Giá trị nhập kho/ Tổng giá trị mua" };
+        }
+        return field;
+      })
+    };
+  }, [activeImportConfig, importDomain]);
 
   const importMenuItems = useMemo<NonNullable<MenuProps["items"]>>(
     () =>
@@ -847,6 +870,12 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
 
     return rows;
   }, [groupByPartner, reportData, tablePartnerKeyword, tableProductKeyword]);
+
+  const detailSummaryTotal = isDetailReport(reportData)
+    ? reportType === "SO_CHI_TIET_MUA_HANG"
+      ? reportData.summary.totalGoodsAmount
+      : reportData.summary.totalNetAmount
+    : 0;
 
   const debtRows = useMemo(() => {
     if (!isDebtSummaryReport(reportData)) {
@@ -956,7 +985,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       title: "Trạng thái thanh toán",
       width: 180,
       align: "center",
-      render: (value: ReportDetailRow["paymentStatus"]) => paymentStatusLabelMap[value] ?? value
+      render: (value: ReportDetailRow["paymentStatus"]) => paymentStatusLabelMapVn[value] ?? value
     },
     note: {
       key: "note",
@@ -1232,6 +1261,13 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
           width: config.width
         };
 
+        if (key === "lineAmount" && reportType === "SO_CHI_TIET_MUA_HANG") {
+          column.title = "Tổng giá trị mua hàng";
+          column.render = (_value: number, record: ReportDetailRow) => (
+            <Typography.Text strong>{formatCurrency(record.grossAmount)}</Typography.Text>
+          );
+        }
+
         if ((key === "partnerCode" || key === "partnerName") && groupByPartner) {
           column.onCell = (_row: ReportDetailRow, index?: number) => ({
             rowSpan: index === undefined ? 1 : (partnerSpanByIndex.get(index) ?? 1)
@@ -1436,6 +1472,13 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       .sort((left, right) => left.order - right.order)
       .map((item) => ({ key: item.key as DetailColumnKey, title: item.title, width: item.width }));
 
+    const exportColumns =
+      reportType === "SO_CHI_TIET_MUA_HANG"
+        ? visibleColumns.map((item) =>
+            item.key === "lineAmount" ? { ...item, title: "Tổng giá trị mua hàng" } : item
+          )
+        : visibleColumns;
+
     if (!visibleColumns.length) {
       message.warning("Vui lòng bật ít nhất 1 cột hiển thị trước khi xuất Excel.");
       return;
@@ -1450,9 +1493,9 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       [resolveReportLabelForUI(reportType)],
       [periodLabel],
       [""],
-      visibleColumns.map((item) => item.title),
+      exportColumns.map((item) => item.title),
       ...rows.map((row) =>
-        visibleColumns.map((column) => {
+        exportColumns.map((column) => {
           switch (column.key) {
             case "voucherDate":
               return formatDateForExcel(row.voucherDate);
@@ -1463,7 +1506,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
             case "partnerName":
               return row.partnerName ?? "";
             case "paymentStatus":
-              return paymentStatusLabelMap[row.paymentStatus] ?? row.paymentStatus;
+              return paymentStatusLabelMapVn[row.paymentStatus] ?? row.paymentStatus;
             case "note":
               return row.note ?? "";
             case "skuCode":
@@ -1487,7 +1530,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
             case "taxAmount":
               return row.taxAmount;
             case "lineAmount":
-              return row.lineAmount;
+              return reportType === "SO_CHI_TIET_MUA_HANG" ? row.grossAmount : row.lineAmount;
             default:
               return "";
           }
@@ -1498,9 +1541,12 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
     const summaryRecord: Partial<Record<DetailColumnKey, string | number>> = {
       grossAmount: reportData.summary.totalGoodsAmount,
       taxAmount: reportData.summary.totalTaxAmount,
-      lineAmount: reportData.summary.totalNetAmount
+      lineAmount:
+        reportType === "SO_CHI_TIET_MUA_HANG"
+          ? reportData.summary.totalGoodsAmount
+          : reportData.summary.totalNetAmount
     };
-    const summaryRow = visibleColumns.map((column, index) => {
+    const summaryRow = exportColumns.map((column, index) => {
       if (index === 0) {
         return "Tổng cộng";
       }
@@ -2829,9 +2875,9 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
 
       <ImportWizardModal<ReportImportMappedData>
         open={openImportModal}
-        title={activeImportConfig.title}
-        entityLabel={activeImportConfig.entityLabel}
-        systemFields={activeImportConfig.systemFields}
+        title={resolvedImportConfig.title}
+        entityLabel={resolvedImportConfig.entityLabel}
+        systemFields={resolvedImportConfig.systemFields}
         onCancel={() => setOpenImportModal(false)}
         onValidate={(payload) =>
           validateImportData<ReportImportMappedData>({

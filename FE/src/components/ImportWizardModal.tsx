@@ -622,6 +622,10 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
                       value={activeSheetName || undefined}
                       options={sheetNames.map((sheetName) => ({ value: sheetName, label: sheetName }))}
                       disabled={!selectedFile}
+                      style={{ width: "100%" }}
+                      popupMatchSelectWidth={false}
+                      popupClassName="misa-import__sheet-dropdown"
+                      dropdownStyle={{ minWidth: 280, maxWidth: 520 }}
                       onChange={(value) => {
                         if (!selectedFile) {
                           return;

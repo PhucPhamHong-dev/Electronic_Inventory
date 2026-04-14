@@ -476,6 +476,20 @@ function parseCashPaymentMethod(value: RawImportCellValue): PaymentMethod {
   return "CASH";
 }
 
+function inferCashPaymentMethodFromVoucherNo(value: RawImportCellValue): PaymentMethod | null {
+  const raw = normalizeText(value);
+  if (!raw) {
+    return null;
+  }
+  if (raw.startsWith("nttk")) {
+    return "TRANSFER";
+  }
+  if (raw.startsWith("pt")) {
+    return "CASH";
+  }
+  return null;
+}
+
 function parseCashPaymentReason(value: RawImportCellValue): PaymentReason {
   const raw = normalizeText(value);
   if (!raw) {
@@ -1059,6 +1073,8 @@ export class ImportService {
       const parsedAmount = parseNumeric(row.amountRaw);
       const parsedPaymentReason = parseCashPaymentReason(row.paymentReasonRaw);
       const parsedPaymentMethod = parseCashPaymentMethod(row.paymentMethodRaw);
+      const inferredPaymentMethod = inferCashPaymentMethodFromVoucherNo(row.voucherNo);
+      const resolvedPaymentMethod = inferredPaymentMethod ?? parsedPaymentMethod;
 
       if (!parsedDate) {
         errors.push("Ngày hạch toán không hợp lệ");
@@ -1103,7 +1119,7 @@ export class ImportService {
         partnerCode: row.partnerCode,
         partnerName: row.partnerName,
         paymentReason: parsedPaymentReason,
-        paymentMethod: parsedPaymentMethod,
+        paymentMethod: resolvedPaymentMethod,
         amount: parsedAmount ?? 0
       };
 
@@ -1153,6 +1169,7 @@ export class ImportService {
 
       for (const row of validRows) {
         const mappedData = toRecord(row.mappedData);
+        const inferredPaymentMethod = inferCashPaymentMethodFromVoucherNo(mappedData.voucherNo);
         const mapped: CashVoucherMappedData = {
           voucherDate: toOptionalText(mappedData.voucherDate),
           voucherNo: toOptionalText(mappedData.voucherNo),
@@ -1161,7 +1178,7 @@ export class ImportService {
           partnerCode: toOptionalText(mappedData.partnerCode),
           partnerName: toOptionalText(mappedData.partnerName),
           paymentReason: parseCashPaymentReason(mappedData.paymentReason),
-          paymentMethod: parseCashPaymentMethod(mappedData.paymentMethod),
+          paymentMethod: inferredPaymentMethod ?? parseCashPaymentMethod(mappedData.paymentMethod),
           amount: parseNumeric(mappedData.amount) ?? 0
         };
 

@@ -1401,6 +1401,26 @@ body,
   gap: 16px;
 }
 
+.misa-import__sheet-dropdown .ant-select-item-option {
+  height: auto;
+  align-items: flex-start;
+}
+
+.misa-import__sheet-dropdown .ant-select-item-option-content {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.misa-import-modal .ant-select-dropdown .ant-select-item-option {
+  height: auto;
+  align-items: flex-start;
+}
+
+.misa-import-modal .ant-select-dropdown .ant-select-item-option-content {
+  white-space: normal;
+  word-break: break-word;
+}
+
 .misa-import__source-summary {
   margin-top: 12px;
   padding: 12px 16px;
