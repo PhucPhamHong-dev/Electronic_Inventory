@@ -185,6 +185,14 @@ function formatPercent(value: number): string {
   return PERCENT_FORMATTER.format(value);
 }
 
+function formatDateDdMmYyyy(value: string | Date): string {
+  const date = asDate(value);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 function ensurePageSpace(doc: PDFDocument, requiredHeight: number): void {
   const bottomLimit = doc.page.height - PAGE_MARGIN;
   if (doc.y + requiredHeight > bottomLimit) {
@@ -548,20 +556,106 @@ export class PdfService {
   ): Promise<void> {
     const fonts = resolveFonts(options?.fonts);
     const calculated = computeInvoice(voucher);
-    const filename = options?.filename ?? `phieu-xuat-kho-${voucher.voucherNo}.pdf`;
+    const filename = options?.filename ?? `phieu-gui-hang-${voucher.voucherNo}.pdf`;
 
     applyPdfHeaders(res, filename);
     const doc = createDocument(fonts);
     doc.pipe(res);
 
-    drawHeader(doc, voucher, "PHIẾU XUẤT KHO BÁN HÀNG");
+    drawHeader(doc, voucher, "PHIẾU GỬI HÀNG");
     const tableTop = drawPartnerInfo(doc, voucher, "Tên khách hàng");
     await drawItemsTable(doc, calculated.rows, tableTop);
     ensurePageSpace(doc, 130);
     drawSummaryBlock(doc, calculated, oldDebtAmount);
     drawSalesNotice(doc);
     ensurePageSpace(doc, 70);
-    drawTwoColumnSignatures(doc, "Người mua hàng", "Người giao hàng");
+    drawTwoColumnSignatures(doc, "Người nhận hàng", "Người giao hàng");
+
+    doc.end();
+    await waitForPdfStream(doc, res);
+  }
+
+  async generateSalesHandoverRecordPdf(
+    voucher: VoucherPdfVoucher,
+    res: Response,
+    options?: SalesInvoiceGenerateOptions
+  ): Promise<void> {
+    const fonts = resolveFonts(options?.fonts);
+    const filename = options?.filename ?? `bien-ban-ban-giao-${voucher.voucherNo}.pdf`;
+
+    applyPdfHeaders(res, filename);
+    const doc = createDocument(fonts);
+    doc.pipe(res);
+
+    doc.font("Bold").fontSize(18).text("BIÊN BẢN BÀN GIAO", PAGE_MARGIN, 40, {
+      width: CONTENT_WIDTH,
+      align: "center"
+    });
+
+    const companyName = voucher.companyName?.trim() || "CÔNG TY";
+    const partnerName = voucher.partner.name?.trim() || "";
+    const place = voucher.companyAddress?.trim() || "";
+
+    let cursorY = 90;
+    doc.font("Regular").fontSize(11);
+    doc.text(`Bên nhận (Bên A): ${partnerName}`, PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
+    cursorY += 20;
+    doc.text("Ông (Bà): ....................................................", PAGE_MARGIN, cursorY, {
+      width: CONTENT_WIDTH * 0.5
+    });
+    doc.text("Chức vụ: ....................................................", PAGE_MARGIN + CONTENT_WIDTH * 0.5, cursorY, {
+      width: CONTENT_WIDTH * 0.5
+    });
+    cursorY += 20;
+    doc.text(`Bên giao (Bên B): ${companyName}`, PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
+    cursorY += 20;
+    doc.text("Ông (Bà): ....................................................", PAGE_MARGIN, cursorY, {
+      width: CONTENT_WIDTH * 0.5
+    });
+    doc.text("Chức vụ: ....................................................", PAGE_MARGIN + CONTENT_WIDTH * 0.5, cursorY, {
+      width: CONTENT_WIDTH * 0.5
+    });
+    cursorY += 20;
+    doc.text(`Ngày ${formatDateDdMmYyyy(voucher.voucherDate)}${place ? ` tại ${place}` : ""}`, PAGE_MARGIN, cursorY, {
+      width: CONTENT_WIDTH
+    });
+    cursorY += 20;
+    doc.text("Bên B đã bàn giao cho bên A:", PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
+
+    const rows = voucher.items.map((item, index) => [
+      String(index + 1),
+      item.productName,
+      item.unit || "",
+      formatQuantity(item.quantity)
+    ]);
+
+    await doc.table(
+      {
+        headers: [
+          { label: "STT", align: "center" },
+          { label: "Tên hàng", align: "left" },
+          { label: "Đơn vị tính", align: "center" },
+          { label: "Số lượng", align: "right" }
+        ],
+        rows
+      },
+      {
+        x: PAGE_MARGIN,
+        y: cursorY + 10,
+        width: CONTENT_WIDTH,
+        columnSpacing: 4,
+        prepareHeader: () => doc.font("Bold").fontSize(10),
+        prepareRow: () => doc.font("Regular").fontSize(10)
+      }
+    );
+
+    doc.moveDown(0.6);
+    doc.font("Italic").fontSize(10).text("Ghi chú: Hàng đã mua không trả lại.", PAGE_MARGIN, doc.y, {
+      width: CONTENT_WIDTH
+    });
+
+    ensurePageSpace(doc, 90);
+    drawTwoColumnSignatures(doc, "ĐẠI DIỆN BÊN NHẬN", "ĐẠI DIỆN BÊN GIAO");
 
     doc.end();
     await waitForPdfStream(doc, res);

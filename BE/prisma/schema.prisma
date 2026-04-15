@@ -180,6 +180,7 @@ model Partner {
   arLedger              ArLedger[]
   quotations            Quotation[]
   debtCollectionDetails DebtCollectionDetail[]
+  customerProductPrices CustomerProductPrice[] @relation("CustomerProductPriceCustomer")
 
   @@index([deletedAt, code], map: "partners_deleted_at_code_idx")
   @@index([deletedAt, name], map: "partners_deleted_at_name_idx")
@@ -212,9 +213,26 @@ model Product {
   voucherItems       VoucherItem[]
   inventoryMovements InventoryMovement[]
   quotationDetails   QuotationDetail[]
+  customerProductPrices CustomerProductPrice[] @relation("CustomerProductPriceProduct")
 
   @@index([warehouseId], map: "products_warehouse_id_idx")
   @@map("products")
+}
+
+model CustomerProductPrice {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  lastPrice  Decimal  @map("last_price") @db.Decimal(18, 4)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customer Partner @relation("CustomerProductPriceCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  product  Product @relation("CustomerProductPriceProduct", fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, productId], map: "customer_product_prices_customer_product_uniq")
+  @@index([customerId], map: "customer_product_prices_customer_id_idx")
+  @@index([productId], map: "customer_product_prices_product_id_idx")
+  @@map("customer_product_prices")
 }
 
 model Warehouse {

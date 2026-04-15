@@ -110,6 +110,15 @@ const unpaidInvoicesQuerySchema = z.object({
   type: z.enum(["SALES", "PURCHASE"])
 });
 
+const lastPriceQuerySchema = z.object({
+  customerId: z.string().uuid(),
+  productId: z.string().uuid()
+});
+
+const exportPdfQuerySchema = z.object({
+  template: z.enum(["DELIVERY_NOTE", "HANDOVER_RECORD"]).optional()
+});
+
 function assertContext(req: Request): { traceId: string; ipAddress: string } {
   if (!req.context) {
     throw new AppError("Missing request context", 500, "INTERNAL_ERROR");
@@ -203,6 +212,19 @@ export class VoucherController {
 
       const data = await voucherService.listUnpaidInvoices(query);
       sendSuccess(res, context.traceId, maskSensitiveFields(data, user.permissions));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getLastSalesPrice(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const context = assertContext(req);
+      assertUser(req);
+      const query = lastPriceQuerySchema.parse(req.query);
+
+      const lastPrice = await voucherService.getCustomerProductLastPrice(query.customerId, query.productId);
+      sendSuccess(res, context.traceId, { lastPrice });
     } catch (error) {
       next(error);
     }
@@ -460,7 +482,8 @@ export class VoucherController {
     try {
       assertContext(req);
       assertUser(req);
-      await voucherService.streamVoucherPdf(req.params.id, res);
+      const query = exportPdfQuerySchema.parse(req.query);
+      await voucherService.streamVoucherPdf(req.params.id, res, query.template);
     } catch (error) {
       next(error);
     }

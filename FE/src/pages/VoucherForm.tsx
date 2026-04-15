@@ -538,6 +538,7 @@ export function VoucherFormPage() {
           id={buildVoucherCellId(record.key, "quantity")}
           value={value}
           min={0}
+          keyboard={false}
           controls={false}
           style={{ width: "100%" }}
           formatter={formatInputNumberValue}
@@ -562,6 +563,7 @@ export function VoucherFormPage() {
           id={buildVoucherCellId(record.key, "unitPrice")}
           value={value}
           min={0}
+          keyboard={false}
           controls={false}
           style={{ width: "100%" }}
           formatter={formatInputNumberValue}
@@ -587,6 +589,7 @@ export function VoucherFormPage() {
           value={value}
           min={0}
           max={100}
+          keyboard={false}
           controls={false}
           style={{ width: "100%" }}
           formatter={formatInputNumberValue}
@@ -612,6 +615,7 @@ export function VoucherFormPage() {
           value={value}
           min={0}
           max={100}
+          keyboard={false}
           controls={false}
           style={{ width: "100%" }}
           formatter={formatInputNumberValue}

@@ -81,7 +81,7 @@ Mục tiêu vận hành:
 
 ### 1.7 Quy tắc đánh số chứng từ
 - `PURCHASE`: `NK-YYYY-####`
-- `SALES`: `XK-YYYY-####`
+- `SALES`: `GH-YYYY-####`
 - `CONVERSION`: `XL-YYYY-####`
 
 Số chứng từ sinh tại DB function `generate_voucher_no(...)` để tránh trùng khi concurrent.

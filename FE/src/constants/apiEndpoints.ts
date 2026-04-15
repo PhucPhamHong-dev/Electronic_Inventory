@@ -15,6 +15,7 @@ export const API_ENDPOINTS = {
   VOUCHER_DELETE: (id: string) => `/v1/vouchers/${id}`,
   VOUCHER_PDF: (id: string) => `/v1/vouchers/${id}/pdf`,
   VOUCHER_UNPAID: "/v1/vouchers/unpaid",
+  VOUCHER_LAST_PRICE: "/v1/vouchers/last-price",
   CASH_VOUCHERS: "/v1/cash-vouchers",
   DEBT_SUMMARY: "/v1/debt/summary",
   DEBT_COLLECTIONS: "/v1/debt/collections",

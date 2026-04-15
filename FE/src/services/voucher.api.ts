@@ -52,6 +52,19 @@ export async function fetchUnpaidInvoices(params: {
   return response.data.data;
 }
 
+export async function fetchCustomerProductLastPrice(params: {
+  customerId: string;
+  productId: string;
+}): Promise<number | null> {
+  const response = await axiosClient.get<ApiResponse<{ lastPrice: number | null }>>(API_ENDPOINTS.VOUCHER_LAST_PRICE, {
+    params
+  });
+  if (!response.data.success || !response.data.data) {
+    throw new Error(response.data.error?.message || "Fetch last sales price failed");
+  }
+  return response.data.data.lastPrice ?? null;
+}
+
 export async function createPurchaseVoucher(payload: CreateVoucherPayload): Promise<VoucherTransactionResult> {
   const response = await axiosClient.post<ApiResponse<VoucherTransactionResult>>(API_ENDPOINTS.VOUCHER_PURCHASE, payload);
   if (!response.data.success || !response.data.data) {
@@ -156,7 +169,7 @@ function resolveVoucherPdfFileName(voucherNo: string, type: VoucherType): string
     return `Phieu_Nhap_Kho_${voucherNo}.pdf`;
   }
   if (type === "SALES") {
-    return `Phieu_Xuat_Kho_${voucherNo}.pdf`;
+    return `Phieu_Gui_Hang_${voucherNo}.pdf`;
   }
   if (type === "RECEIPT") {
     return `Phieu_Thu_${voucherNo}.pdf`;
@@ -167,13 +180,24 @@ function resolveVoucherPdfFileName(voucherNo: string, type: VoucherType): string
   return `Chung_Tu_${voucherNo}.pdf`;
 }
 
-export async function downloadVoucherPdf(voucherId: string, voucherNo: string, type: VoucherType): Promise<void> {
+type VoucherPdfTemplate = "DELIVERY_NOTE" | "HANDOVER_RECORD";
+
+export async function downloadVoucherPdf(
+  voucherId: string,
+  voucherNo: string,
+  type: VoucherType,
+  template: VoucherPdfTemplate = "DELIVERY_NOTE"
+): Promise<void> {
   const response = await axiosClient.get<Blob>(API_ENDPOINTS.VOUCHER_PDF(voucherId), {
+    params: { template },
     responseType: "blob"
   });
 
   const safeVoucherNo = sanitizeVoucherNo(voucherNo || voucherId);
-  const fileName = resolveVoucherPdfFileName(safeVoucherNo, type);
+  const fileName =
+    type === "SALES" && template === "HANDOVER_RECORD"
+      ? `Bien_Ban_Ban_Giao_${safeVoucherNo}.pdf`
+      : resolveVoucherPdfFileName(safeVoucherNo, type);
   const url = window.URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
   const anchor = document.createElement("a");
   anchor.href = url;

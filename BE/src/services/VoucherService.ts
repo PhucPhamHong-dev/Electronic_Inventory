@@ -1345,7 +1345,11 @@ export class VoucherService {
     });
   }
 
-  async streamVoucherPdf(voucherId: string, res: Response): Promise<void> {
+  async streamVoucherPdf(
+    voucherId: string,
+    res: Response,
+    template: "DELIVERY_NOTE" | "HANDOVER_RECORD" = "DELIVERY_NOTE"
+  ): Promise<void> {
     const data = await this.buildPdfData(voucherId);
     const filenameSafeVoucherNo = (data.voucherNo || data.voucherId).replace(/[\\/:*?"<>|]/g, "_");
 
@@ -1391,12 +1395,17 @@ export class VoucherService {
     };
 
     if (data.voucherType === "SALES") {
-      await this.pdfService.generateSalesPdf(
-        voucherPayload,
-        oldDebtAmount,
-        res,
-        { filename: `Phieu_Xuat_Kho_${filenameSafeVoucherNo}.pdf` }
-      );
+      if (template === "HANDOVER_RECORD") {
+        await this.pdfService.generateSalesHandoverRecordPdf(
+          voucherPayload,
+          res,
+          { filename: `Bien_Ban_Ban_Giao_${filenameSafeVoucherNo}.pdf` }
+        );
+        return;
+      }
+      await this.pdfService.generateSalesPdf(voucherPayload, oldDebtAmount, res, {
+        filename: `Phieu_Gui_Hang_${filenameSafeVoucherNo}.pdf`
+      });
       return;
     }
 
@@ -1954,6 +1963,8 @@ export class VoucherService {
       totals.totalNetAmount += line.lineNetAmount;
     }
 
+    await this.upsertCustomerProductLastPrices(tx, partnerId, items);
+
     const ok = await this.adjustPartnerDebt(tx, partnerId, roundTo(totals.totalNetAmount, 4), voucherId, "Sales voucher");
     if (!ok) {
       throw new AppError("Partner not found", 404, "NOT_FOUND");
@@ -1963,6 +1974,48 @@ export class VoucherService {
       totals: this.roundTotals(totals),
       partnerId
     };
+  }
+
+  async getCustomerProductLastPrice(customerId: string, productId: string): Promise<number | null> {
+    const record = await this.db.customerProductPrice.findUnique({
+      where: {
+        customerId_productId: {
+          customerId,
+          productId
+        }
+      },
+      select: {
+        lastPrice: true
+      }
+    });
+
+    return record ? this.toNumber(record.lastPrice) : null;
+  }
+
+  private async upsertCustomerProductLastPrices(
+    tx: Tx,
+    customerId: string,
+    items: VoucherItemInput[]
+  ): Promise<void> {
+    for (const item of items) {
+      const nextPrice = roundTo(Number(item.unitPrice) || 0, 4);
+      await tx.customerProductPrice.upsert({
+        where: {
+          customerId_productId: {
+            customerId,
+            productId: item.productId
+          }
+        },
+        create: {
+          customerId,
+          productId: item.productId,
+          lastPrice: this.decimal(nextPrice, 4)
+        },
+        update: {
+          lastPrice: this.decimal(nextPrice, 4)
+        }
+      });
+    }
   }
 
   private async getAllowNegativeStock(tx: Tx): Promise<boolean> {

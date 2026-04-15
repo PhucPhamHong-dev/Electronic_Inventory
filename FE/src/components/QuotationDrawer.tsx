@@ -186,6 +186,7 @@ function renderEditableNumberCell(
         value={value}
         min={0}
         max={options?.max}
+        keyboard={false}
         controls={false}
         style={{ width: "100%" }}
         formatter={formatInputNumberValue}

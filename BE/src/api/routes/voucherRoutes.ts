@@ -6,6 +6,7 @@ export const voucherRouter = Router();
 
 voucherRouter.get("/", asyncHandler(VoucherController.listVouchers));
 voucherRouter.get("/unpaid", asyncHandler(VoucherController.listUnpaidInvoices));
+voucherRouter.get("/last-price", asyncHandler(VoucherController.getLastSalesPrice));
 voucherRouter.get("/:id", asyncHandler(VoucherController.getVoucherById));
 voucherRouter.post("/purchase", asyncHandler(VoucherController.createPurchase));
 voucherRouter.post("/sales", asyncHandler(VoucherController.createSales));

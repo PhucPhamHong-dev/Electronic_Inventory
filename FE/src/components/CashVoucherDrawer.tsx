@@ -944,6 +944,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
               id={buildDirectCellId(record.key, "amount")}
               value={value}
               min={0}
+              keyboard={false}
               controls={false}
               style={{ width: "100%" }}
               formatter={formatAmountInput}
@@ -1111,6 +1112,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
             value={value}
             min={0}
             max={100}
+            keyboard={false}
             controls={false}
             style={{ width: "100%" }}
             onKeyDown={handleExpenseCellKeyDown(rowIndex, "vatRate")}
@@ -1129,6 +1131,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
             id={buildExpenseCellId(record.key, "vatAmount")}
             value={value}
             min={0}
+            keyboard={false}
             controls={false}
             style={{ width: "100%" }}
             formatter={formatAmountInput}

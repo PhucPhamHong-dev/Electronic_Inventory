@@ -7,6 +7,7 @@ import {
   Col,
   DatePicker,
   Divider,
+  Dropdown,
   Drawer,
   Form,
   Input,
@@ -19,6 +20,7 @@ import {
   Typography,
   message
 } from "antd";
+import type { MenuProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent } from "react";
@@ -26,7 +28,15 @@ import { AppSelect } from "./common/AppSelect";
 import { PartnerModal, type PartnerFormValues } from "./PartnerModal";
 import { createPartner, createProduct, fetchPartners, fetchProducts, updatePartner } from "../services/masterData.api";
 import { fetchQuotationById } from "../services/quotation.api";
-import { createPurchaseVoucher, createSalesVoucher, downloadVoucherPdf, fetchVoucherById, payVoucher, updateVoucher } from "../services/voucher.api";
+import {
+  createPurchaseVoucher,
+  createSalesVoucher,
+  downloadVoucherPdf,
+  fetchCustomerProductLastPrice,
+  fetchVoucherById,
+  payVoucher,
+  updateVoucher
+} from "../services/voucher.api";
 import { fetchCompanySettings } from "../services/system.api";
 import type {
   CreateVoucherPayload,
@@ -195,6 +205,7 @@ function renderEditableNumberCell(
         value={value}
         min={0}
         max={options?.max}
+        keyboard={false}
         controls={false}
         style={{ width: "100%" }}
         formatter={formatInputNumberValue}
@@ -607,6 +618,33 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     setRows((prev) => prev.map((row) => row.key !== rowKey ? row : recalculateRow({ ...row, ...patch })));
   };
 
+  const applyCustomerSuggestedPrice = async (rowKey: string, productId: string) => {
+    if (isPurchaseMode || isEditMode || !selectedPartnerId) {
+      return;
+    }
+    try {
+      const lastPrice = await fetchCustomerProductLastPrice({
+        customerId: selectedPartnerId,
+        productId
+      });
+      if (lastPrice === null) {
+        return;
+      }
+      setRows((prev) =>
+        prev.map((row) =>
+          row.key !== rowKey || row.rowType === "NOTE" || row.productId !== productId
+            ? row
+            : recalculateRow({
+                ...row,
+                unitPrice: Number(lastPrice)
+              })
+        )
+      );
+    } catch {
+      // Keep default product price when suggestion lookup fails.
+    }
+  };
+
   const addRow = () => setRows((prev) => [...prev, createEmptyRow()]);
   const addNoteRow = () => setRows((prev) => [...prev, createNoteRow()]);
   const clearRows = () => setRows([createEmptyRow()]);
@@ -695,14 +733,14 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     }
   };
 
-  const handleDownloadPdf = async () => {
+  const handleDownloadPdf = async (template: "DELIVERY_NOTE" | "HANDOVER_RECORD" = "DELIVERY_NOTE") => {
     const targetId = savedVoucher?.voucherId ?? voucherId ?? null;
     const voucherNo = form.getFieldValue("voucherNo") ?? savedVoucher?.voucherNo ?? targetId ?? "";
     if (!targetId) {
       message.warning("Vui lòng lưu chứng từ trước khi tải PDF.");
       return;
     }
-    await downloadVoucherPdf(targetId, voucherNo, isPurchaseMode ? "PURCHASE" : "SALES");
+    await downloadVoucherPdf(targetId, voucherNo, isPurchaseMode ? "PURCHASE" : "SALES", template);
   };
 
   const handleSaveAndPrint = async () => {
@@ -735,6 +773,10 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
   };
 
   const drawerTitle = watchedVoucherNo && watchedVoucherNo !== "Tự sinh khi lưu" ? `${headerTitle} ${watchedVoucherNo}` : headerTitle;
+  const pdfTemplateItems: MenuProps["items"] = [
+    { key: "DELIVERY_NOTE", label: "Phiếu giao hàng" },
+    { key: "HANDOVER_RECORD", label: "Biên bản bàn giao" }
+  ];
   const drawerHeader = (
     <div className="voucher-drawer-header">
       <span className="voucher-drawer-title">{drawerTitle}</span>
@@ -784,6 +826,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
                 unitName: selected?.unitName ?? "",
                 unitPrice: selected ? Number(isPurchaseMode ? (selected.costPrice || selected.sellingPrice || 0) : (selected.sellingPrice || selected.costPrice || 0)) : 0
               });
+              void applyCustomerSuggestedPrice(record.key, productId);
             }}
           />
         );
@@ -912,7 +955,53 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         onClose={onClose}
         rootClassName="sales-voucher-drawer"
         styles={{ body: { paddingBottom: 12 } }}
-        footer={<div className="sales-voucher-sticky-footer sales-voucher-sticky-footer-dark"><Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary" onClick={onClose}>Hủy</Button><Space><Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary" onClick={() => void handleDownloadPdf()}>Tải PDF</Button><Button className="sales-voucher-footer-button sales-voucher-footer-button-primary" loading={actionLoading} disabled={shouldBlockSaveForStock} onClick={() => void handleSave()}>Cất</Button><Button className="sales-voucher-footer-button sales-voucher-footer-button-primary" loading={actionLoading} disabled={shouldBlockSaveForStock} onClick={() => void handleSaveAndPrint()}>Cất và In <DownOutlined /></Button></Space></div>}
+        footer={
+          <div className="sales-voucher-sticky-footer sales-voucher-sticky-footer-dark">
+            <Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary" onClick={onClose}>
+              Hủy
+            </Button>
+            <Space>
+              {isPurchaseMode ? (
+                <Button
+                  className="sales-voucher-footer-button sales-voucher-footer-button-secondary"
+                  onClick={() => void handleDownloadPdf("DELIVERY_NOTE")}
+                >
+                  Tải PDF
+                </Button>
+              ) : (
+                <Dropdown
+                  trigger={["click"]}
+                  menu={{
+                    items: pdfTemplateItems,
+                    onClick: ({ key }) => {
+                      void handleDownloadPdf(key as "DELIVERY_NOTE" | "HANDOVER_RECORD");
+                    }
+                  }}
+                >
+                  <Button className="sales-voucher-footer-button sales-voucher-footer-button-secondary">
+                    Tải PDF <DownOutlined />
+                  </Button>
+                </Dropdown>
+              )}
+              <Button
+                className="sales-voucher-footer-button sales-voucher-footer-button-primary"
+                loading={actionLoading}
+                disabled={shouldBlockSaveForStock}
+                onClick={() => void handleSave()}
+              >
+                Cất
+              </Button>
+              <Button
+                className="sales-voucher-footer-button sales-voucher-footer-button-primary"
+                loading={actionLoading}
+                disabled={shouldBlockSaveForStock}
+                onClick={() => void handleSaveAndPrint()}
+              >
+                Cất và In <DownOutlined />
+              </Button>
+            </Space>
+          </div>
+        }
       >
         <div className="sales-voucher-screen">
           <div className="sales-voucher-topbar"><Space wrap className="sales-voucher-payment-row"><><Radio.Group value={paymentFlow} onChange={(event) => setPaymentFlow(event.target.value as "UNPAID" | "IMMEDIATE")} options={paymentFlowOptions} />{paymentFlow === "IMMEDIATE" ? <AppSelect value={paymentMethod} style={{ width: 160 }} options={[{ value: "CASH", label: "Tiền mặt" }, { value: "TRANSFER", label: "Chuyển khoản" }]} onChange={(value) => setPaymentMethod(value as PaymentMethod)} /> : null}</></Space><div className="sales-voucher-topbar-total"><span>Tổng tiền thanh toán</span><strong>{formatCurrency(totals.totalNetAmount)}</strong></div></div>

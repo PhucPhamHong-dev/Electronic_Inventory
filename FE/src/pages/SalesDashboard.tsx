@@ -339,8 +339,12 @@ export function SalesDashboardPage() {
         void payMutation.mutateAsync(record.id);
         return;
       }
-      if (action === "print") {
-        void downloadVoucherPdf(record.id, record.voucherNo ?? record.id, "SALES");
+      if (action === "download-handover") {
+        void downloadVoucherPdf(record.id, record.voucherNo ?? record.id, "SALES", "HANDOVER_RECORD");
+        return;
+      }
+      if (action === "download-delivery") {
+        void downloadVoucherPdf(record.id, record.voucherNo ?? record.id, "SALES", "DELIVERY_NOTE");
         return;
       }
       if (action === "delete") {
@@ -392,7 +396,8 @@ export function SalesDashboardPage() {
       }
     }
     items.push({ key: "duplicate", label: "Nh\u00e2n b\u1ea3n" });
-    items.push({ key: "print", label: "In" });
+    items.push({ key: "download-handover", label: "T\u1ea3i phi\u1ebfu b\u00e0n giao" });
+    items.push({ key: "download-delivery", label: "T\u1ea3i phi\u1ebfu giao h\u00e0ng" });
     if (record.status === "DRAFT") {
       items.push({ key: "delete", label: "X\u00f3a" });
     }
