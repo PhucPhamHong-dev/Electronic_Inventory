@@ -587,7 +587,7 @@ export class PdfService {
     const doc = createDocument(fonts);
     doc.pipe(res);
 
-    doc.font("Bold").fontSize(18).text("BIÊN BẢN BÀN GIAO", PAGE_MARGIN, 40, {
+    doc.font("Bold").fontSize(17).text("BIÊN BẢN BÀN GIAO", PAGE_MARGIN, 40, {
       width: CONTENT_WIDTH,
       align: "center"
     });
@@ -596,61 +596,75 @@ export class PdfService {
     const partnerName = voucher.partner.name?.trim() || "";
     const place = voucher.companyAddress?.trim() || "";
 
-    let cursorY = 90;
+    let cursorY = 88;
+    const lineHeight = 18;
     doc.font("Regular").fontSize(11);
-    doc.text(`Bên nhận (Bên A): ${partnerName}`, PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
-    cursorY += 20;
-    doc.text("Ông (Bà): ....................................................", PAGE_MARGIN, cursorY, {
-      width: CONTENT_WIDTH * 0.5
-    });
-    doc.text("Chức vụ: ....................................................", PAGE_MARGIN + CONTENT_WIDTH * 0.5, cursorY, {
-      width: CONTENT_WIDTH * 0.5
-    });
-    cursorY += 20;
+    doc.text(`Đại diện bên nhận (Bên A): ${partnerName}`, PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
+    cursorY += lineHeight;
+    doc.text("Ông (Bà):", PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
+    cursorY += lineHeight;
     doc.text(`Bên giao (Bên B): ${companyName}`, PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
-    cursorY += 20;
-    doc.text("Ông (Bà): ....................................................", PAGE_MARGIN, cursorY, {
-      width: CONTENT_WIDTH * 0.5
-    });
-    doc.text("Chức vụ: ....................................................", PAGE_MARGIN + CONTENT_WIDTH * 0.5, cursorY, {
-      width: CONTENT_WIDTH * 0.5
-    });
-    cursorY += 20;
+    cursorY += lineHeight;
+    doc.text("Ông (Bà):", PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
+    cursorY += lineHeight;
     doc.text(`Ngày ${formatDateDdMmYyyy(voucher.voucherDate)}${place ? ` tại ${place}` : ""}`, PAGE_MARGIN, cursorY, {
       width: CONTENT_WIDTH
     });
-    cursorY += 20;
+    cursorY += lineHeight;
     doc.text("Bên B đã bàn giao cho bên A:", PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
 
-    const rows = voucher.items.map((item, index) => [
-      String(index + 1),
-      item.productName,
-      item.unit || "",
-      formatQuantity(item.quantity)
-    ]);
+    const tableTop = cursorY + 10;
+    const rowHeight = 24;
+    const colWidths = roundColumnWidths([CONTENT_WIDTH * 0.09, CONTENT_WIDTH * 0.53, CONTENT_WIDTH * 0.18, CONTENT_WIDTH * 0.20]);
+    const rows = voucher.items.length > 0 ? voucher.items : [];
+    const totalRows = Math.max(rows.length, 1);
+    const tableHeight = rowHeight * (totalRows + 1);
+    const tableBottom = tableTop + tableHeight;
 
-    await doc.table(
-      {
-        headers: [
-          { label: "STT", align: "center" },
-          { label: "Tên hàng", align: "left" },
-          { label: "Đơn vị tính", align: "center" },
-          { label: "Số lượng", align: "right" }
-        ],
-        rows
-      },
-      {
-        x: PAGE_MARGIN,
-        y: cursorY + 10,
-        width: CONTENT_WIDTH,
-        columnSpacing: 4,
-        prepareHeader: () => doc.font("Bold").fontSize(10),
-        prepareRow: () => doc.font("Regular").fontSize(10)
-      }
-    );
+    doc.rect(PAGE_MARGIN, tableTop, CONTENT_WIDTH, tableHeight).lineWidth(1).stroke("#000000");
 
-    doc.moveDown(0.6);
-    doc.font("Italic").fontSize(10).text("Ghi chú: Hàng đã mua không trả lại.", PAGE_MARGIN, doc.y, {
+    let lineX = PAGE_MARGIN;
+    for (let i = 0; i < colWidths.length - 1; i += 1) {
+      lineX += colWidths[i];
+      doc.moveTo(lineX, tableTop).lineTo(lineX, tableBottom).lineWidth(0.8).stroke("#000000");
+    }
+
+    for (let i = 1; i <= totalRows; i += 1) {
+      const y = tableTop + rowHeight * i;
+      doc.moveTo(PAGE_MARGIN, y).lineTo(PAGE_MARGIN + CONTENT_WIDTH, y).lineWidth(0.8).stroke("#000000");
+    }
+
+    const headers = ["STT", "Tên hàng", "Đơn vị tính", "Số lượng"];
+    doc.font("Bold").fontSize(10);
+    let textX = PAGE_MARGIN;
+    headers.forEach((header, index) => {
+      doc.text(header, textX, tableTop + 7, {
+        width: colWidths[index],
+        align: index === 1 ? "left" : "center"
+      });
+      textX += colWidths[index];
+    });
+
+    doc.font("Regular").fontSize(10);
+    for (let index = 0; index < totalRows; index += 1) {
+      const item = rows[index];
+      const rowY = tableTop + rowHeight * (index + 1) + 7;
+      const productName = item?.productName ? String(item.productName).slice(0, 64) : "";
+      const unit = item?.unit ?? "";
+      const quantity = item ? formatQuantity(item.quantity) : "";
+
+      let cellX = PAGE_MARGIN;
+      doc.text(item ? String(index + 1) : "", cellX, rowY, { width: colWidths[0], align: "center" });
+      cellX += colWidths[0];
+      doc.text(productName, cellX + 4, rowY, { width: colWidths[1] - 8, align: "left" });
+      cellX += colWidths[1];
+      doc.text(unit, cellX, rowY, { width: colWidths[2], align: "center" });
+      cellX += colWidths[2];
+      doc.text(quantity, cellX, rowY, { width: colWidths[3] - 6, align: "right" });
+    }
+
+    doc.y = tableBottom + 12;
+    doc.font("Italic").fontSize(10).text("Lưu ý : Kiểm tra hàng trước khi thanh toán . Hàng đặt không trả lại", PAGE_MARGIN, doc.y, {
       width: CONTENT_WIDTH
     });
 
