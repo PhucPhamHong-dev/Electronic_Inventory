@@ -601,11 +601,7 @@ export class PdfService {
     doc.font("Regular").fontSize(11);
     doc.text(`Đại diện bên nhận (Bên A): ${partnerName}`, PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
     cursorY += lineHeight;
-    doc.text("Ông (Bà):", PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
-    cursorY += lineHeight;
     doc.text(`Bên giao (Bên B): ${companyName}`, PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
-    cursorY += lineHeight;
-    doc.text("Ông (Bà):", PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
     cursorY += lineHeight;
     doc.text(`Ngày ${formatDateDdMmYyyy(voucher.voucherDate)}${place ? ` tại ${place}` : ""}`, PAGE_MARGIN, cursorY, {
       width: CONTENT_WIDTH
@@ -613,7 +609,7 @@ export class PdfService {
     cursorY += lineHeight;
     doc.text("Bên B đã bàn giao cho bên A:", PAGE_MARGIN, cursorY, { width: CONTENT_WIDTH });
 
-    const tableTop = cursorY + 10;
+    const tableTop = cursorY + 16;
     const rowHeight = 24;
     const colWidths = roundColumnWidths([CONTENT_WIDTH * 0.09, CONTENT_WIDTH * 0.53, CONTENT_WIDTH * 0.18, CONTENT_WIDTH * 0.20]);
     const rows = voucher.items.length > 0 ? voucher.items : [];
