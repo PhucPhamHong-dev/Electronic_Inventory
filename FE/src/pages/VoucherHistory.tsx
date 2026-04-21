@@ -26,9 +26,9 @@ const voucherTypeMetaMap: Record<string, VoucherTypeMeta> = {
 };
 
 const paymentStatusMetaMap = {
-  UNPAID: { label: "ChÆ°a thanh toÃ¡n", color: "red" },
-  PARTIAL: { label: "Thanh toÃ¡n má»™t pháº§n", color: "orange" },
-  PAID: { label: "ÄÃ£ thanh toÃ¡n", color: "green" }
+  UNPAID: { label: "Chưa thanh toán", color: "red" },
+  PARTIAL: { label: "Thanh toán một phần", color: "orange" },
+  PAID: { label: "Đã thanh toán", color: "green" }
 } as const;
 
 function resolveVoucherTypeByTab(tab: VoucherHistoryTabKey): VoucherType | undefined {
@@ -89,7 +89,7 @@ export function VoucherHistoryPage() {
   const quickPayMutation = useMutation({
     mutationFn: (voucherId: string) => payVoucher(voucherId),
     onSuccess: async () => {
-      message.success("ÄÃ£ thanh toÃ¡n thÃ nh cÃ´ng vÃ  táº¡o phiáº¿u Ä‘á»‘i á»©ng.");
+      message.success("Đã thanh toán thành công và tạo phiếu đối ứng.");
       await vouchersQuery.refetch();
     }
   });
@@ -97,7 +97,7 @@ export function VoucherHistoryPage() {
   const columns: ColumnsType<VoucherHistoryItem> = useMemo(
     () => [
       {
-        title: "NgÃ y chá»©ng tá»«",
+        title: "Ngày chứng từ",
         dataIndex: "createdAt",
         key: "createdAt",
         align: "center",
@@ -105,7 +105,7 @@ export function VoucherHistoryPage() {
         render: (value: string) => dayjs(value).format("DD/MM/YYYY HH:mm")
       },
       {
-        title: "Sá»‘ phiáº¿u",
+        title: "Số phiếu",
         dataIndex: "voucherNo",
         key: "voucherNo",
         width: 160,
@@ -122,7 +122,7 @@ export function VoucherHistoryPage() {
         )
       },
       {
-        title: "Loáº¡i phiáº¿u",
+        title: "Loại phiếu",
         dataIndex: "type",
         key: "type",
         align: "center",
@@ -133,14 +133,14 @@ export function VoucherHistoryPage() {
         }
       },
       {
-        title: "Äá»‘i tÃ¡c",
+        title: "Đối tác",
         dataIndex: "partnerName",
         key: "partnerName",
         ellipsis: true,
         render: (value: string | null) => value ?? "-"
       },
       {
-        title: "Tá»•ng tiá»n",
+        title: "Tổng tiền",
         dataIndex: "totalNetAmount",
         key: "totalNetAmount",
         width: 180,
@@ -148,7 +148,7 @@ export function VoucherHistoryPage() {
         render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
       },
       {
-        title: "TT thanh toÃ¡n",
+        title: "TT thanh toán",
         dataIndex: "paymentStatus",
         key: "paymentStatus",
         align: "center",
@@ -167,7 +167,7 @@ export function VoucherHistoryPage() {
         render: (value: string | null) => value ?? "-"
       },
       {
-        title: "HÃ nh Ä‘á»™ng",
+        title: "Hành động",
         key: "actions",
         align: "center",
         width: 170,
@@ -191,10 +191,10 @@ export function VoucherHistoryPage() {
             />
             {canQuickPay(record) ? (
               <Popconfirm
-                title="XÃ¡c nháº­n thanh toÃ¡n?"
-                description="Báº¡n cÃ³ cháº¯c cháº¯n muá»‘n thanh toÃ¡n toÃ n bá»™ sá»‘ tiá»n cho phiáº¿u nÃ y? Há»‡ thá»‘ng sáº½ tá»± Ä‘á»™ng táº¡o Phiáº¿u Thu/Chi vÃ  trá»« cÃ´ng ná»£."
-                okText="XÃ¡c nháº­n"
-                cancelText="Há»§y"
+                title="Xác nhận thanh toán?"
+                description="Bạn có chắc chắn muốn thanh toán toàn bộ số tiền cho phiếu này? Hệ thống sẽ tự động tạo Phiếu Thu/Chi và trừ công nợ."
+                okText="Xác nhận"
+                cancelText="Hủy"
                 onConfirm={() => quickPayMutation.mutateAsync(record.id)}
               >
                 <Button
@@ -214,7 +214,7 @@ export function VoucherHistoryPage() {
   return (
     <div>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Lá»‹ch sá»­ chá»©ng tá»«
+        Lịch sử chứng từ
       </Typography.Title>
 
       <Tabs
@@ -224,17 +224,17 @@ export function VoucherHistoryPage() {
           setPage(1);
         }}
         items={[
-          { key: "ALL", label: "Táº¥t cáº£" },
-          { key: "SALES", label: "Phiáº¿u Xuáº¥t (BÃ¡n hÃ ng)" },
-          { key: "PURCHASE", label: "Phiáº¿u Nháº­p (Mua hÃ ng)" },
-          { key: "OPENING_BALANCE", label: "Sá»‘ dÆ° Ä‘áº§u ká»³" }
+          { key: "ALL", label: "Tất cả" },
+          { key: "SALES", label: "Phiếu Xuất (Bán hàng)" },
+          { key: "PURCHASE", label: "Phiếu Nhập (Mua hàng)" },
+          { key: "OPENING_BALANCE", label: "Số dư đầu kỳ" }
         ]}
       />
 
       <Space style={{ marginBottom: 12, width: "100%", justifyContent: "space-between" }} wrap>
         <Input.Search
           allowClear
-          placeholder="TÃ¬m theo sá»‘ chá»©ng tá»« hoáº·c tÃªn khÃ¡ch hÃ ng"
+          placeholder="Tìm theo số chứng từ hoặc tên khách hàng"
           style={{ width: 360 }}
           value={searchInput}
           onChange={(event) => {
@@ -284,7 +284,7 @@ export function VoucherHistoryPage() {
 
       <Modal
         open={Boolean(selectedVoucher)}
-        title={selectedVoucher ? `Chi tiáº¿t ${selectedVoucher.voucherNo ?? selectedVoucher.id}` : "Chi tiáº¿t chá»©ng tá»«"}
+        title={selectedVoucher ? `Chi tiết ${selectedVoucher.voucherNo ?? selectedVoucher.id}` : "Chi tiết chứng từ"}
         onCancel={() => {
           setSelectedVoucher(null);
         }}
@@ -293,22 +293,22 @@ export function VoucherHistoryPage() {
         {selectedVoucher ? (
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <Typography.Text>
-              <strong>NgÃ y chá»©ng tá»«:</strong> {dayjs(selectedVoucher.voucherDate).format("DD/MM/YYYY")}
+              <strong>Ngày chứng từ:</strong> {dayjs(selectedVoucher.voucherDate).format("DD/MM/YYYY")}
             </Typography.Text>
             <Typography.Text>
-              <strong>NgÃ y táº¡o:</strong> {dayjs(selectedVoucher.createdAt).format("DD/MM/YYYY HH:mm")}
+              <strong>Ngày tạo:</strong> {dayjs(selectedVoucher.createdAt).format("DD/MM/YYYY HH:mm")}
             </Typography.Text>
             <Typography.Text>
-              <strong>Loáº¡i phiáº¿u:</strong> {voucherTypeMetaMap[selectedVoucher.type].label}
+              <strong>Loại phiếu:</strong> {voucherTypeMetaMap[selectedVoucher.type].label}
             </Typography.Text>
             <Typography.Text>
-              <strong>Äá»‘i tÃ¡c:</strong> {selectedVoucher.partnerName ?? "-"}
+              <strong>Đối tác:</strong> {selectedVoucher.partnerName ?? "-"}
             </Typography.Text>
             <Typography.Text>
-              <strong>Tá»•ng tiá»n:</strong> {formatCurrency(selectedVoucher.totalNetAmount)}
+              <strong>Tổng tiền:</strong> {formatCurrency(selectedVoucher.totalNetAmount)}
             </Typography.Text>
             <Typography.Text>
-              <strong>Diá»…n giáº£i:</strong> {selectedVoucher.note ?? "-"}
+              <strong>Diễn giải:</strong> {selectedVoucher.note ?? "-"}
             </Typography.Text>
           </Space>
         ) : null}

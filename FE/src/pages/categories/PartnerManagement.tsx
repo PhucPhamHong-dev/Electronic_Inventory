@@ -582,7 +582,7 @@ export function PartnerManagementPage() {
             </Button>
             {activeGroup === "SUPPLIER" ? (
               <Button icon={<UploadOutlined />} onClick={() => setOpenSupplierDebtImportModal(true)}>
-                Nháº­p cÃ´ng ná»£ NCC
+                Nhập công nợ NCC
               </Button>
             ) : null}
             {activeGroup === "SUPPLIER" ? (
@@ -733,39 +733,39 @@ export function PartnerManagementPage() {
         />
         <ImportWizardModal<SupplierDebtImportMappedData>
           open={openSupplierDebtImportModal}
-          title="Nháº­p danh sÃ¡ch ná»£ nhÃ  cung cáº¥p tá»« Excel"
-          entityLabel="CÃ´ng ná»£ nhÃ  cung cáº¥p"
+          title="Nhập danh sách nợ nhà cung cấp từ Excel"
+          entityLabel="Công nợ nhà cung cấp"
           systemFields={[
             {
               key: "code",
-              label: "MÃ£ nhÃ  cung cáº¥p",
+              label: "Mã nhà cung cấp",
               aliases: ["ma nha cung cap", "ma doi tac", "ma"]
             },
             {
               key: "name",
-              label: "TÃªn nhÃ  cung cáº¥p",
+              label: "Tên nhà cung cấp",
               required: true,
               aliases: ["ten nha cung cap", "ten doi tac", "ten cong ty", "ten"]
             },
             {
               key: "address",
-              label: "Äá»‹a chá»‰",
+              label: "Địa chỉ",
               aliases: ["dia chi", "address"]
             },
             {
               key: "debtAmount",
-              label: "Sá»‘ tiá»n ná»£",
+              label: "Số tiền nợ",
               required: true,
               aliases: ["so tien no", "cong no", "so no", "debt"]
             },
             {
               key: "taxCode",
-              label: "MÃ£ sá»‘ thuáº¿/CCCD chá»§ há»™",
+              label: "Mã số thuế/CCCD chủ hộ",
               aliases: ["ma so thue", "mst", "cccd", "tax code"]
             },
             {
               key: "phone",
-              label: "Äiá»‡n thoáº¡i",
+              label: "Điện thoại",
               aliases: ["dien thoai", "so dien thoai", "phone"]
             }
           ]}
