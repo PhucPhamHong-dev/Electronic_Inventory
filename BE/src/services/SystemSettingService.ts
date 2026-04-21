@@ -96,6 +96,9 @@ export class SystemSettingService {
       debtCollections,
       debtCollectionDetails,
       customerProductPrices,
+      categories,
+      warehouses,
+      units,
       products,
       partners,
       auditLogs
@@ -249,22 +252,52 @@ export class SystemSettingService {
           updatedAt: true
         }
       }),
+      this.db.category.findMany({
+        orderBy: [{ code: "asc" }],
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          createdAt: true,
+          deletedAt: true
+        }
+      }),
+      this.db.warehouse.findMany({
+        orderBy: [{ name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          deletedAt: true
+        }
+      }),
+      this.db.unit.findMany({
+        orderBy: [{ name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          createdAt: true
+        }
+      }),
       this.db.product.findMany({
-        where: { deletedAt: null },
         orderBy: [{ skuCode: "asc" }],
         select: {
           id: true,
           skuCode: true,
           name: true,
+          categoryId: true,
+          unitId: true,
+          warehouseId: true,
           unitName: true,
           warehouseName: true,
           stockQuantity: true,
           costPrice: true,
-          sellingPrice: true
+          sellingPrice: true,
+          createdAt: true,
+          deletedAt: true
         }
       }),
       this.db.partner.findMany({
-        where: { deletedAt: null },
         orderBy: [{ code: "asc" }],
         select: {
           id: true,
@@ -274,7 +307,9 @@ export class SystemSettingService {
           phone: true,
           address: true,
           taxCode: true,
-          currentDebt: true
+          currentDebt: true,
+          createdAt: true,
+          deletedAt: true
         }
       }),
       this.db.auditLog.findMany({
@@ -302,6 +337,9 @@ export class SystemSettingService {
       debtCollections,
       debtCollectionDetails,
       customerProductPrices,
+      categories,
+      warehouses,
+      units,
       products,
       partners,
       auditLogs
@@ -354,6 +392,26 @@ export class SystemSettingService {
       {
         hangMuc: "Giá bán gần nhất theo khách",
         soLuong: snapshot.customerProductPrices.length
+      },
+      {
+        hangMuc: "Danh mục nhóm hàng",
+        soLuong: snapshot.categories.length
+      },
+      {
+        hangMuc: "Danh mục kho",
+        soLuong: snapshot.warehouses.length
+      },
+      {
+        hangMuc: "Danh mục đơn vị tính",
+        soLuong: snapshot.units.length
+      },
+      {
+        hangMuc: "Danh mục hàng hóa",
+        soLuong: snapshot.products.length
+      },
+      {
+        hangMuc: "Danh mục đối tác",
+        soLuong: snapshot.partners.length
       }
     ]);
 
@@ -486,15 +544,41 @@ export class SystemSettingService {
       capNhatLuc: this.asDateTimeText(item.updatedAt)
     })));
 
+    this.appendSheet(workbook, "DanhMucNhomHang", snapshot.categories.map((item) => ({
+      id: item.id,
+      maNhom: item.code,
+      tenNhom: item.name,
+      ngayTao: this.asDateTimeText(item.createdAt),
+      ngayXoa: this.asDateTimeText(item.deletedAt)
+    })));
+
+    this.appendSheet(workbook, "DanhMucKho", snapshot.warehouses.map((item) => ({
+      id: item.id,
+      tenKho: item.name,
+      ngayTao: this.asDateTimeText(item.createdAt),
+      ngayXoa: this.asDateTimeText(item.deletedAt)
+    })));
+
+    this.appendSheet(workbook, "DanhMucDonViTinh", snapshot.units.map((item) => ({
+      id: item.id,
+      tenDonViTinh: item.name,
+      ngayTao: this.asDateTimeText(item.createdAt)
+    })));
+
     this.appendSheet(workbook, "HangHoaHienTai", snapshot.products.map((item) => ({
       id: item.id,
       maHang: item.skuCode,
       tenHang: item.name,
+      categoryId: item.categoryId ?? "",
+      unitId: item.unitId ?? "",
+      warehouseId: item.warehouseId ?? "",
       donViTinh: item.unitName,
       kho: item.warehouseName ?? "",
       tonKho: this.asNumber(item.stockQuantity),
       giaVon: this.asNumber(item.costPrice),
-      giaBan: this.asNumber(item.sellingPrice)
+      giaBan: this.asNumber(item.sellingPrice),
+      ngayTao: this.asDateTimeText(item.createdAt),
+      ngayXoa: this.asDateTimeText(item.deletedAt)
     })));
 
     this.appendSheet(workbook, "DoiTacHienTai", snapshot.partners.map((item) => ({
@@ -505,7 +589,9 @@ export class SystemSettingService {
       dienThoai: item.phone ?? "",
       diaChi: item.address ?? "",
       maSoThue: item.taxCode ?? "",
-      congNoHienTai: this.asNumber(item.currentDebt)
+      congNoHienTai: this.asNumber(item.currentDebt),
+      ngayTao: this.asDateTimeText(item.createdAt),
+      ngayXoa: this.asDateTimeText(item.deletedAt)
     })));
 
     this.appendSheet(workbook, "AuditLog", snapshot.auditLogs.map((item) => ({
@@ -585,17 +671,11 @@ export class SystemSettingService {
       await tx.customerProductPrice.deleteMany();
       await tx.voucherNumberCounter.deleteMany();
       await tx.auditLog.deleteMany();
-      await tx.partner.updateMany({
-        data: {
-          currentDebt: 0
-        }
-      });
-      await tx.product.updateMany({
-        data: {
-          stockQuantity: 0,
-          costPrice: 0
-        }
-      });
+      await tx.product.deleteMany();
+      await tx.partner.deleteMany();
+      await tx.category.deleteMany();
+      await tx.warehouse.deleteMany();
+      await tx.unit.deleteMany();
     });
   }
 }

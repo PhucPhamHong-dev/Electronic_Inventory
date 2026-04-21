@@ -172,7 +172,7 @@ export function SystemManagementPage() {
       link.download = fileName;
       link.click();
       URL.revokeObjectURL(url);
-      notification.success({ message: "Đã tải snapshot và xóa dữ liệu sổ sách" });
+      notification.success({ message: "Đã tải snapshot và xóa dữ liệu sổ sách cùng danh mục vận hành" });
     }
   });
 
@@ -412,17 +412,17 @@ export function SystemManagementPage() {
                             <Space direction="vertical" size={8} style={{ width: "100%" }}>
                               <Typography.Text strong>Dữ liệu sổ sách</Typography.Text>
                               <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                                Chức năng này sẽ tải 1 file Excel snapshot rồi xóa toàn bộ chứng từ, báo giá, công nợ, sổ kho, đợt thu nợ và đưa tồn kho, công nợ hiện tại về 0. Danh mục, người dùng và cấu hình hệ thống vẫn được giữ lại.
+                                Chức năng này sẽ tải 1 file Excel snapshot rồi xóa toàn bộ chứng từ, báo giá, công nợ, sổ kho, đợt thu nợ, khách hàng, nhà cung cấp, hàng hóa, nhóm hàng, kho và đơn vị tính. Người dùng và cấu hình hệ thống vẫn được giữ lại.
                               </Typography.Paragraph>
                               <Button
                                 danger
                                 loading={accountingResetMutation.isPending}
                                 onClick={() => {
                                   Modal.confirm({
-                                    title: "Xóa toàn bộ dữ liệu sổ sách",
+                                    title: "Xóa toàn bộ dữ liệu sổ sách và danh mục vận hành",
                                     content:
-                                      "Hệ thống sẽ tải snapshot Excel và xóa sạch dữ liệu sổ sách hiện tại. Chỉ nên dùng khi chốt chu kỳ và chuẩn bị nhập đầu kỳ mới.",
-                                    okText: "Tải snapshot và xóa",
+                                      "Hệ thống sẽ tải snapshot Excel và xóa sạch dữ liệu sổ sách hiện tại cùng khách hàng, nhà cung cấp, hàng hóa, nhóm hàng, kho và đơn vị tính. Chỉ nên dùng khi chốt chu kỳ và chuẩn bị nhập đầu kỳ mới.",
+                                    okText: "Tải snapshot và xóa toàn bộ",
                                     okButtonProps: { danger: true, loading: accountingResetMutation.isPending },
                                     cancelText: "Hủy",
                                     onOk: async () => {
@@ -431,7 +431,7 @@ export function SystemManagementPage() {
                                   });
                                 }}
                               >
-                                Tải snapshot Excel và xóa dữ liệu sổ sách
+                                Tải snapshot Excel và xóa toàn bộ dữ liệu
                               </Button>
                             </Space>
                           </Card>
