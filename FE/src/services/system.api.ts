@@ -60,3 +60,15 @@ export async function updateCompanySettings(payload: CompanySettings) {
   }
   return response.data.data;
 }
+
+export async function exportAndResetAccountingData() {
+  const response = await axiosClient.post(API_ENDPOINTS.SYSTEM_ACCOUNTING_RESET, undefined, {
+    responseType: "blob"
+  });
+  const disposition = String(response.headers["content-disposition"] ?? "");
+  const matchedFileName = disposition.match(/filename=\"?([^"]+)\"?/i)?.[1];
+  return {
+    blob: response.data as Blob,
+    fileName: matchedFileName ?? "snapshot-so-sach.xlsx"
+  };
+}

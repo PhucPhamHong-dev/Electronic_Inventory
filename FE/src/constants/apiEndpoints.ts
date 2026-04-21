@@ -55,5 +55,6 @@ export const API_ENDPOINTS = {
   USERS: "/v1/users",
   USER_BY_ID: (id: string) => `/v1/users/${id}`,
   USER_RESET_PASSWORD: (id: string) => `/v1/users/${id}/reset-password`,
-  SYSTEM_SETTINGS: "/v1/system-settings"
+  SYSTEM_SETTINGS: "/v1/system-settings",
+  SYSTEM_ACCOUNTING_RESET: "/v1/system-settings/accounting-reset"
 } as const;

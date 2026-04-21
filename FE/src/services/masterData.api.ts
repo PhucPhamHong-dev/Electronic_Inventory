@@ -12,6 +12,7 @@ export interface ProductImportMapping {
   name?: string;
   unitName?: string;
   warehouseName?: string;
+  openingStock?: string;
   sellingPrice?: string;
 }
 
@@ -35,6 +36,7 @@ export interface ProductImportMappedData {
   name: string;
   unitName: string;
   warehouseName: string;
+  openingStock: number | null;
   sellingPrice: number | null;
 }
 

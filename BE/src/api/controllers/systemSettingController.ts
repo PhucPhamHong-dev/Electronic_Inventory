@@ -41,4 +41,16 @@ export class SystemSettingController {
       next(error);
     }
   }
+
+  static async exportAndResetAccountingData(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      assertContext(req);
+      const { fileName, buffer } = await service.exportAndResetAccountingData();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  }
 }

@@ -1,4 +1,4 @@
-import { InventoryMovementType, Prisma, type PartnerGroup, type PartnerType, type PrismaClient, type VoucherType } from "@prisma/client";
+import { InventoryMovementType, Prisma, VoucherStatus, type PartnerGroup, type PartnerType, type PrismaClient, type VoucherType } from "@prisma/client";
 import { prisma } from "../config/db";
 import { env } from "../config/env";
 import type {
@@ -43,6 +43,7 @@ interface ImportProductRow {
   name: string;
   unitName?: string;
   warehouseName?: string;
+  openingStock?: number;
   sellingPrice?: number;
 }
 
@@ -64,6 +65,7 @@ interface ProductImportMapping {
   name?: string;
   unitName?: string;
   warehouseName?: string;
+  openingStock?: string;
   sellingPrice?: string;
 }
 
@@ -87,6 +89,7 @@ interface ValidatedProductImportRowData {
   name: string;
   unitName: string;
   warehouseName: string;
+  openingStock: number | null;
   sellingPrice: number | null;
 }
 
@@ -523,6 +526,7 @@ export class MasterDataService {
         let inserted = 0;
         let updated = 0;
         const warehouseCache = new Map<string, { id: string; name: string }>();
+        const unitCache = new Map<string, { id: string }>();
 
         for (const row of rows) {
           const skuCode = row.skuCode.trim();
@@ -535,12 +539,7 @@ export class MasterDataService {
           }
 
           const normalizedUnitName = row.unitName?.trim() || "unit";
-          const unit = await tx.unit.upsert({
-            where: { name: normalizedUnitName },
-            update: {},
-            create: { name: normalizedUnitName },
-            select: { id: true }
-          });
+          const unit = await this.resolveUnitInTx(tx, normalizedUnitName, unitCache);
 
           const existing = await tx.product.findUnique({
             where: { skuCode },
@@ -632,6 +631,8 @@ export class MasterDataService {
       const name = this.normalizeRequiredText(this.readMappedCell(row, mapping.name)) ?? "";
       const unitName = this.normalizeOptionalText(this.readMappedCell(row, mapping.unitName)) ?? "";
       const warehouseName = this.normalizeOptionalText(this.readMappedCell(row, mapping.warehouseName)) ?? "";
+      const openingStockValue = this.readMappedCell(row, mapping.openingStock);
+      const openingStock = this.parseNumericCell(openingStockValue);
       const sellingPriceValue = this.readMappedCell(row, mapping.sellingPrice);
       const sellingPrice = this.parseNumericCell(sellingPriceValue);
 
@@ -641,6 +642,12 @@ export class MasterDataService {
       }
       if (!name) {
         errors.push("Khong duoc de trong Ten hang");
+      }
+      if (mapping.openingStock && openingStockValue !== null && openingStockValue !== "" && openingStock === null) {
+        errors.push("Số lượng tồn đầu kỳ phải là số");
+      }
+      if (openingStock !== null && openingStock < 0) {
+        errors.push("Số lượng tồn đầu kỳ không được âm");
       }
       if (mapping.sellingPrice && sellingPriceValue !== null && sellingPriceValue !== "" && sellingPrice === null) {
         errors.push("Gia ban phai la so");
@@ -669,6 +676,7 @@ export class MasterDataService {
           name,
           unitName,
           warehouseName,
+          openingStock,
           sellingPrice
         }
       } satisfies ValidatedImportRow<ValidatedProductImportRowData>;
@@ -698,16 +706,12 @@ export class MasterDataService {
         let inserted = 0;
         let updated = 0;
         const warehouseCache = new Map<string, { id: string; name: string }>();
+        const unitCache = new Map<string, { id: string }>();
 
         for (const row of validRows) {
           const mapped = row.mappedData;
           const unitName = mapped.unitName.trim() || "unit";
-          const unit = await tx.unit.upsert({
-            where: { name: unitName },
-            update: {},
-            create: { name: unitName },
-            select: { id: true }
-          });
+          const unit = await this.resolveUnitInTx(tx, unitName, unitCache);
           const normalizedWarehouseName = this.normalizeNullableText(mapped.warehouseName);
           const warehouse = await this.resolveWarehouseInTx(tx, normalizedWarehouseName, warehouseCache);
 
@@ -725,12 +729,20 @@ export class MasterDataService {
             warehouseName: warehouse?.name ?? normalizedWarehouseName,
             sellingPrice: this.decimal(Math.max(mapped.sellingPrice ?? 0, 0), 4)
           };
+          const openingStock = Math.max(mapped.openingStock ?? 0, 0);
 
           if (input.importMode === "CREATE_ONLY") {
             if (existing) {
               throw new AppError(`Dong ${row.rowNumber}: Ma hang da ton tai`, 400, "VALIDATION_ERROR");
             }
-            await tx.product.create({ data: productPayload });
+            const createdProduct = await tx.product.create({
+              data: {
+                ...productPayload,
+                stockQuantity: this.decimal(openingStock, 3)
+              },
+              select: { id: true }
+            });
+            await this.upsertOpeningInventoryForProduct(tx, createdProduct.id, openingStock);
             inserted += 1;
             continue;
           }
@@ -747,14 +759,16 @@ export class MasterDataService {
                 unitName: productPayload.unitName,
                 warehouseId: productPayload.warehouseId,
                 warehouseName: productPayload.warehouseName,
-                sellingPrice: productPayload.sellingPrice
+                sellingPrice: productPayload.sellingPrice,
+                stockQuantity: this.decimal(openingStock, 3)
               }
             });
+            await this.upsertOpeningInventoryForProduct(tx, existing.id, openingStock);
             updated += 1;
             continue;
           }
 
-          await tx.product.upsert({
+          const upsertedProduct = await tx.product.upsert({
             where: { skuCode: mapped.skuCode },
             update: {
               name: productPayload.name,
@@ -762,10 +776,16 @@ export class MasterDataService {
               unitName: productPayload.unitName,
               warehouseId: productPayload.warehouseId,
               warehouseName: productPayload.warehouseName,
-              sellingPrice: productPayload.sellingPrice
+              sellingPrice: productPayload.sellingPrice,
+              stockQuantity: this.decimal(openingStock, 3)
             },
-            create: productPayload
+            create: {
+              ...productPayload,
+              stockQuantity: this.decimal(openingStock, 3)
+            },
+            select: { id: true }
           });
+          await this.upsertOpeningInventoryForProduct(tx, upsertedProduct.id, openingStock);
 
           if (existing) {
             updated += 1;
@@ -782,6 +802,110 @@ export class MasterDataService {
       },
       this.importTxOptions
     );
+  }
+
+  private getOpeningVoucherDate(): Date {
+    const now = new Date();
+    return new Date(now.getFullYear() - 1, 11, 31);
+  }
+
+  private async upsertOpeningInventoryForProduct(
+    tx: Prisma.TransactionClient,
+    productId: string,
+    openingStock: number
+  ): Promise<void> {
+    const existingOpeningVoucher = await tx.voucher.findFirst({
+      where: {
+        type: "OPENING_BALANCE",
+        deletedAt: null,
+        inventoryMovements: {
+          some: {
+            productId
+          }
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (openingStock === 0) {
+      if (existingOpeningVoucher) {
+        await tx.inventoryMovement.deleteMany({
+          where: {
+            voucherId: existingOpeningVoucher.id,
+            productId
+          }
+        });
+        const remainingMovements = await tx.inventoryMovement.count({
+          where: {
+            voucherId: existingOpeningVoucher.id
+          }
+        });
+        if (remainingMovements === 0) {
+          await tx.voucher.delete({
+            where: {
+              id: existingOpeningVoucher.id
+            }
+          });
+        }
+      }
+      return;
+    }
+
+    const voucherDate = this.getOpeningVoucherDate();
+    let voucherId = existingOpeningVoucher?.id;
+    if (!voucherId) {
+      const createdVoucher = await tx.voucher.create({
+        data: {
+          type: "OPENING_BALANCE",
+          status: VoucherStatus.BOOKED,
+          paymentStatus: "UNPAID",
+          voucherDate,
+          note: "Nhập tồn đầu kỳ từ file Excel",
+          totalAmount: 0,
+          totalNetAmount: 0,
+          isInventoryInput: true,
+          metadata: {
+            openingKind: "INVENTORY",
+            source: "PRODUCT_IMPORT",
+            productId
+          }
+        },
+        select: { id: true }
+      });
+      voucherId = createdVoucher.id;
+    } else {
+      await tx.inventoryMovement.deleteMany({
+        where: {
+          voucherId,
+          productId
+        }
+      });
+      await tx.voucher.update({
+        where: { id: voucherId },
+        data: {
+          voucherDate,
+          note: "Nhập tồn đầu kỳ từ file Excel",
+          status: VoucherStatus.BOOKED,
+          paymentStatus: "UNPAID",
+          isInventoryInput: true
+        }
+      });
+    }
+
+    await tx.inventoryMovement.create({
+      data: {
+        voucherId,
+        productId,
+        movementType: openingStock >= 0 ? InventoryMovementType.PURCHASE_IN : InventoryMovementType.REVERSAL_OUT,
+        quantityBefore: this.decimal(0, 3),
+        quantityChange: this.decimal(openingStock, 3),
+        quantityAfter: this.decimal(openingStock, 3),
+        unitCost: this.decimal(0, 4),
+        totalCost: this.decimal(0, 4)
+      }
+    });
   }
 
   async importPartnersFromRows(
@@ -1566,6 +1690,48 @@ export class MasterDataService {
     return created;
   }
 
+  private async resolveUnitInTx(
+    tx: Prisma.TransactionClient,
+    unitName: string,
+    cache: Map<string, { id: string }>
+  ) {
+    const normalized = unitName.trim() || "unit";
+    const cached = cache.get(normalized);
+    if (cached) {
+      return cached;
+    }
+
+    const existing = await tx.unit.findUnique({
+      where: { name: normalized },
+      select: { id: true }
+    });
+    if (existing) {
+      cache.set(normalized, existing);
+      return existing;
+    }
+
+    try {
+      const created = await tx.unit.create({
+        data: { name: normalized },
+        select: { id: true }
+      });
+      cache.set(normalized, created);
+      return created;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const duplicated = await tx.unit.findUnique({
+          where: { name: normalized },
+          select: { id: true }
+        });
+        if (duplicated) {
+          cache.set(normalized, duplicated);
+          return duplicated;
+        }
+      }
+      throw error;
+    }
+  }
+
   private async generatePartnerCode(target: PartnerTypeValue | PartnerGroupValue): Promise<string> {
     const prefix = target === "SUPPLIER" ? "NCC" : "KH";
     const latestPartner = await this.db.partner.findFirst({
@@ -1621,4 +1787,5 @@ export class MasterDataService {
   private decimal(value: number, scale: number): Prisma.Decimal {
     return new Prisma.Decimal(value.toFixed(scale));
   }
+
 }

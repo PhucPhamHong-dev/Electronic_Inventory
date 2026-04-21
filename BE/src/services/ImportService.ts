@@ -6,6 +6,7 @@ import {
   type PaymentStatus,
   Prisma,
   type PrismaClient,
+  VoucherStatus,
   type VoucherType
 } from "@prisma/client";
 import XLSX from "xlsx";
@@ -14,6 +15,8 @@ import { env } from "../config/env";
 import { AppError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { MasterDataService } from "./MasterDataService";
+
+const ALLOW_NEGATIVE_STOCK_KEY = "allow_negative_stock";
 
 export const importDomainValues = [
   "PRODUCTS",
@@ -157,7 +160,7 @@ const templateDefinitionByDomain: Record<ImportDomainValue, TemplateDefinition> 
   PRODUCTS: {
     fileName: "Mau_nhap_hang_hoa.xlsx",
     sheetName: "HangHoa",
-    headers: ["Mã hàng", "Tên hàng", "Đơn vị tính", "Kho", "Giá bán"]
+    headers: ["Mã hàng", "Tên hàng", "Đơn vị tính", "Kho", "Số lượng tồn đầu kỳ", "Giá bán"]
   },
   PARTNERS_CUSTOMER: {
     fileName: "Mau_nhap_khach_hang.xlsx",
@@ -706,6 +709,7 @@ export class ImportService {
         name: input.mappingObject.name,
         unitName: input.mappingObject.unitName,
         warehouseName: input.mappingObject.warehouseName,
+        openingStock: input.mappingObject.openingStock,
         sellingPrice: input.mappingObject.sellingPrice
       },
       importMode: input.importMode
@@ -734,6 +738,7 @@ export class ImportService {
           name: toOptionalText(row.mappedData.name),
           unitName: toOptionalText(row.mappedData.unitName),
           warehouseName: toOptionalText(row.mappedData.warehouseName),
+          openingStock: parseNumeric(row.mappedData.openingStock),
           sellingPrice: parseNumeric(row.mappedData.sellingPrice)
         }
       }))
@@ -971,7 +976,7 @@ export class ImportService {
           : this.resolveCustomerType(existing?.partnerType ?? null);
 
         if (!existing) {
-          await tx.partner.create({
+          const created = await tx.partner.create({
             data: {
               code,
               name: mapped.name,
@@ -981,7 +986,13 @@ export class ImportService {
               taxCode: mapped.taxCode || null,
               address: mapped.address || null,
               currentDebt: mapped.debtAmount
-            }
+            },
+            select: { id: true }
+          });
+          await this.upsertOpeningDebtVoucher(tx, {
+            partnerId: created.id,
+            partnerName: mapped.name,
+            debtAmount: mapped.debtAmount
           });
           inserted += 1;
           continue;
@@ -999,6 +1010,11 @@ export class ImportService {
             address: mapped.address || null,
             currentDebt: mapped.debtAmount
           }
+        });
+        await this.upsertOpeningDebtVoucher(tx, {
+          partnerId: existing.id,
+          partnerName: mapped.name,
+          debtAmount: mapped.debtAmount
         });
         updated += 1;
       }
@@ -1940,6 +1956,7 @@ export class ImportService {
     if (!input.mappingObject.quantityAfter && !input.mappingObject.valueAfter) {
       throw new AppError("Bắt buộc ghép số lượng tồn hoặc giá trị tồn", 400, "VALIDATION_ERROR");
     }
+    const allowNegativeStock = await this.getAllowNegativeStock();
 
     const rows = input.jsonData
       .map((row, index) => ({
@@ -1978,7 +1995,7 @@ export class ImportService {
         if (quantityAfter === null && valueAfter === null) {
           errors.push("Thiếu số lượng tồn hoặc giá trị tồn");
         }
-        if (quantityAfter !== null && quantityAfter < 0) {
+        if (!allowNegativeStock && quantityAfter !== null && quantityAfter < 0) {
           errors.push("Số lượng tồn không được âm");
         }
         if (valueAfter !== null && valueAfter < 0) {
@@ -2057,15 +2074,12 @@ export class ImportService {
           productCounter: () => ++productCounter
         }, { cache: productCache });
 
-        await tx.product.update({
-          where: { id: product.id },
-          data: {
-            name: toOptionalText(mapped.productName) || undefined,
-            unitName: toOptionalText(mapped.unitName) || undefined,
-            warehouseName: toOptionalText(mapped.warehouseName) || null,
-            costPrice: computedUnitCost,
-            stockQuantity: quantityAfter
-          }
+        await this.upsertOpeningInventoryVoucher(tx, {
+          productId: product.id,
+          productName: toOptionalText(mapped.productName) || toOptionalText(mapped.skuCode) || product.id,
+          quantityAfter,
+          valueAfter,
+          unitCost: computedUnitCost
         });
 
         if (product.created) {
@@ -2497,6 +2511,307 @@ export class ImportService {
     return `HH${String(counter).padStart(6, "0")}`;
   }
 
+  private getOpeningVoucherDate(): Date {
+    const now = new Date();
+    return new Date(now.getFullYear() - 1, 11, 31);
+  }
+
+  private async upsertOpeningDebtVoucher(
+    tx: Prisma.TransactionClient,
+    input: {
+      partnerId: string;
+      partnerName: string;
+      debtAmount: number;
+    }
+  ): Promise<void> {
+    const hasTransactionalDebtHistory = await tx.arLedger.findFirst({
+      where: {
+        partnerId: input.partnerId,
+        voucher: {
+          deletedAt: null,
+          type: {
+            not: "OPENING_BALANCE"
+          }
+        }
+      },
+      select: { id: true }
+    });
+
+    if (hasTransactionalDebtHistory) {
+      throw new AppError(
+        `Đối tượng "${input.partnerName}" đã có phát sinh công nợ sau mở sổ, không thể import lại công nợ đầu kỳ trực tiếp`,
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    const existingOpeningVoucher = await tx.voucher.findFirst({
+      where: {
+        type: "OPENING_BALANCE",
+        partnerId: input.partnerId,
+        deletedAt: null,
+        arLedger: {
+          some: {
+            partnerId: input.partnerId
+          }
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (input.debtAmount === 0) {
+      if (existingOpeningVoucher) {
+        await tx.arLedger.deleteMany({
+          where: {
+            voucherId: existingOpeningVoucher.id
+          }
+        });
+        await tx.voucher.delete({
+          where: {
+            id: existingOpeningVoucher.id
+          }
+        });
+      }
+      await tx.partner.update({
+        where: { id: input.partnerId },
+        data: {
+          currentDebt: 0
+        }
+      });
+      return;
+    }
+
+    const normalizedAmount = Number(input.debtAmount.toFixed(4));
+    const debit = normalizedAmount > 0 ? normalizedAmount : 0;
+    const credit = normalizedAmount < 0 ? Math.abs(normalizedAmount) : 0;
+    const totalAmount = Math.abs(normalizedAmount);
+    const voucherDate = this.getOpeningVoucherDate();
+    const note = "Nhập số dư công nợ đầu kỳ từ file Excel";
+
+    let voucherId = existingOpeningVoucher?.id;
+
+    if (!voucherId) {
+      const createdVoucher = await tx.voucher.create({
+        data: {
+          type: "OPENING_BALANCE",
+          status: VoucherStatus.BOOKED,
+          paymentStatus: "UNPAID",
+          partnerId: input.partnerId,
+          voucherDate,
+          note,
+          totalAmount,
+          totalNetAmount: totalAmount,
+          metadata: {
+            openingKind: "DEBT",
+            source: "IMPORT",
+            partnerId: input.partnerId
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+      voucherId = createdVoucher.id;
+    } else {
+      await tx.voucher.update({
+        where: {
+          id: voucherId
+        },
+        data: {
+          voucherDate,
+          note,
+          totalAmount,
+          totalDiscount: 0,
+          totalTaxAmount: 0,
+          totalNetAmount: totalAmount,
+          paidAmount: 0,
+          partnerId: input.partnerId,
+          status: VoucherStatus.BOOKED,
+          paymentStatus: "UNPAID",
+          metadata: {
+            openingKind: "DEBT",
+            source: "IMPORT",
+            partnerId: input.partnerId
+          }
+        }
+      });
+      await tx.arLedger.deleteMany({
+        where: {
+          voucherId
+        }
+      });
+    }
+
+    await tx.arLedger.create({
+      data: {
+        voucherId,
+        partnerId: input.partnerId,
+        debit,
+        credit,
+        balanceAfter: normalizedAmount,
+        description: note
+      }
+    });
+
+    await tx.partner.update({
+      where: { id: input.partnerId },
+      data: {
+        currentDebt: normalizedAmount
+      }
+    });
+  }
+
+  private async upsertOpeningInventoryVoucher(
+    tx: Prisma.TransactionClient,
+    input: {
+      productId: string;
+      productName: string;
+      quantityAfter: number;
+      valueAfter: number;
+      unitCost: number;
+    }
+  ): Promise<void> {
+    const hasTransactionalInventory = await tx.inventoryMovement.findFirst({
+      where: {
+        productId: input.productId,
+        voucher: {
+          deletedAt: null,
+          type: {
+            not: "OPENING_BALANCE"
+          }
+        }
+      },
+      select: { id: true }
+    });
+
+    if (hasTransactionalInventory) {
+      throw new AppError(
+        `Hàng hóa "${input.productName}" đã có phát sinh nhập/xuất sau mở sổ, không thể import lại tồn đầu kỳ trực tiếp`,
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    const existingOpeningVoucher = await tx.voucher.findFirst({
+      where: {
+        type: "OPENING_BALANCE",
+        deletedAt: null,
+        inventoryMovements: {
+          some: {
+            productId: input.productId
+          }
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+
+    const normalizedQuantity = Number(input.quantityAfter.toFixed(3));
+    const normalizedValue = Number(input.valueAfter.toFixed(4));
+    const normalizedUnitCost = Number(input.unitCost.toFixed(4));
+    const voucherDate = this.getOpeningVoucherDate();
+    const note = "Nhập tồn đầu kỳ từ file Excel";
+
+    if (normalizedQuantity === 0 && normalizedValue === 0) {
+      if (existingOpeningVoucher) {
+        await tx.inventoryMovement.deleteMany({
+          where: {
+            voucherId: existingOpeningVoucher.id
+          }
+        });
+        await tx.voucher.delete({
+          where: {
+            id: existingOpeningVoucher.id
+          }
+        });
+      }
+
+      await tx.product.update({
+        where: { id: input.productId },
+        data: {
+          stockQuantity: 0,
+          costPrice: normalizedUnitCost
+        }
+      });
+      return;
+    }
+
+    let voucherId = existingOpeningVoucher?.id;
+    if (!voucherId) {
+      const createdVoucher = await tx.voucher.create({
+        data: {
+          type: "OPENING_BALANCE",
+          status: VoucherStatus.BOOKED,
+          paymentStatus: "UNPAID",
+          voucherDate,
+          note,
+          totalAmount: normalizedValue,
+          totalNetAmount: normalizedValue,
+          isInventoryInput: true,
+          metadata: {
+            openingKind: "INVENTORY",
+            source: "IMPORT",
+            productId: input.productId
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+      voucherId = createdVoucher.id;
+    } else {
+      await tx.voucher.update({
+        where: { id: voucherId },
+        data: {
+          voucherDate,
+          note,
+          totalAmount: normalizedValue,
+          totalDiscount: 0,
+          totalTaxAmount: 0,
+          totalNetAmount: normalizedValue,
+          paidAmount: 0,
+          isInventoryInput: true,
+          status: VoucherStatus.BOOKED,
+          paymentStatus: "UNPAID",
+          metadata: {
+            openingKind: "INVENTORY",
+            source: "IMPORT",
+            productId: input.productId
+          }
+        }
+      });
+      await tx.inventoryMovement.deleteMany({
+        where: {
+          voucherId
+        }
+      });
+    }
+
+    await tx.inventoryMovement.create({
+      data: {
+        voucherId,
+        productId: input.productId,
+        movementType: normalizedQuantity >= 0 ? "PURCHASE_IN" : "REVERSAL_OUT",
+        quantityBefore: 0,
+        quantityChange: normalizedQuantity,
+        quantityAfter: normalizedQuantity,
+        unitCost: normalizedUnitCost,
+        totalCost: normalizedValue
+      }
+    });
+
+    await tx.product.update({
+      where: { id: input.productId },
+      data: {
+        stockQuantity: normalizedQuantity,
+        costPrice: normalizedUnitCost
+      }
+    });
+  }
+
   private resolveSupplierType(current: PartnerType | null): PartnerType {
     if (current === "BOTH" || current === "SUPPLIER") {
       return current;
@@ -2515,5 +2830,18 @@ export class ImportService {
       return "BOTH";
     }
     return "CUSTOMER";
+  }
+
+  private async getAllowNegativeStock(): Promise<boolean> {
+    const setting = await this.db.systemSetting.findUnique({
+      where: {
+        settingKey: ALLOW_NEGATIVE_STOCK_KEY
+      },
+      select: {
+        valueText: true
+      }
+    });
+
+    return (setting?.valueText ?? "false").trim().toLowerCase() === "true";
   }
 }

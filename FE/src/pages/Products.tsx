@@ -341,6 +341,12 @@ export function ProductsPage() {
             aliases: ["kho", "kho ngam dinh"]
           },
           {
+            key: "openingStock",
+            label: "Số lượng tồn đầu kỳ",
+            aliases: ["so luong ton dau ky", "ton dau ky", "so luong ton", "ton kho dau ky"],
+            renderValue: (value) => formatNumber((value as number | null) ?? 0)
+          },
+          {
             key: "sellingPrice",
             label: "Giá bán",
             aliases: ["gia ban", "don gia ban"],

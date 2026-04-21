@@ -58,6 +58,7 @@ const validateProductImportSchema = z.object({
     name: z.string().optional(),
     unitName: z.string().optional(),
     warehouseName: z.string().optional(),
+    openingStock: z.string().optional(),
     sellingPrice: z.string().optional()
   }),
   importMode: importModeSchema
@@ -74,6 +75,7 @@ const commitProductImportSchema = z.object({
         name: z.string(),
         unitName: z.string(),
         warehouseName: z.string(),
+        openingStock: z.number().nullable(),
         sellingPrice: z.number().nullable()
       })
     })

@@ -381,11 +381,15 @@ export class VoucherService {
       permission
     );
 
-    const created = await this.db.$transaction(
-      async (tx) => {
+    const startedAt = Date.now();
+    try {
+      const created = await this.db.$transaction(
+        async (tx) => {
         await this.setTransactionContext(tx, context);
+        this.logStep(context, "Cash Voucher Pre-flight", "Pre-flight Check");
 
         const invoiceType = isReceipt ? VoucherType.SALES : VoucherType.PURCHASE;
+        const invoiceState = new Map<string, { paidAmount: number; totalNetAmount: number; paymentMethod: PaymentMethod | null }>();
         if (normalizedAllocations.length > 0) {
           const invoiceIds = normalizedAllocations.map((item) => item.invoiceId);
           const invoices = await tx.voucher.findMany({
@@ -398,7 +402,8 @@ export class VoucherService {
               id: true,
               partnerId: true,
               totalNetAmount: true,
-              paidAmount: true
+              paidAmount: true,
+              paymentMethod: true
             }
           });
 
@@ -407,6 +412,7 @@ export class VoucherService {
           }
 
           const invoiceMap = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+          const runningAppliedByInvoice = new Map<string, number>();
           for (const allocation of normalizedAllocations) {
             const invoice = invoiceMap.get(allocation.invoiceId);
             if (!invoice) {
@@ -417,9 +423,19 @@ export class VoucherService {
             }
 
             const remaining = roundTo(this.toNumber(invoice.totalNetAmount) - this.toNumber(invoice.paidAmount), 4);
-            if (allocation.amountApplied > remaining) {
+            const runningApplied = roundTo((runningAppliedByInvoice.get(invoice.id) ?? 0) + allocation.amountApplied, 4);
+            runningAppliedByInvoice.set(invoice.id, runningApplied);
+            if (runningApplied > remaining) {
               throw new AppError("Allocation amount exceeds remaining invoice balance", 400, "VALIDATION_ERROR");
             }
+          }
+
+          for (const invoice of invoices) {
+            invoiceState.set(invoice.id, {
+              paidAmount: this.toNumber(invoice.paidAmount),
+              totalNetAmount: this.toNumber(invoice.totalNetAmount),
+              paymentMethod: invoice.paymentMethod
+            });
           }
         }
 
@@ -461,41 +477,48 @@ export class VoucherService {
             }
           }
         });
+        this.logStep(context, "Cash Voucher Create", "Transaction Started", {
+          voucherId: voucher.id,
+          latencyMs: Date.now() - startedAt
+        });
 
         if (normalizedAllocations.length > 0) {
-          for (const allocation of normalizedAllocations) {
-            await tx.voucherAllocation.create({
-              data: {
-                paymentVoucherId: voucher.id,
-                invoiceVoucherId: allocation.invoiceId,
-                amountApplied: this.decimal(allocation.amountApplied, 4)
-              }
-            });
-
-            const invoice = await tx.voucher.findUniqueOrThrow({
-              where: { id: allocation.invoiceId },
-            select: {
-              id: true,
-              totalNetAmount: true,
-              paidAmount: true,
-              paymentMethod: true
-            }
+          await tx.voucherAllocation.createMany({
+            data: normalizedAllocations.map((allocation) => ({
+              paymentVoucherId: voucher.id,
+              invoiceVoucherId: allocation.invoiceId,
+              amountApplied: this.decimal(allocation.amountApplied, 4)
+            }))
           });
-            const nextPaidAmount = roundTo(this.toNumber(invoice.paidAmount) + allocation.amountApplied, 4);
-            const totalNetAmount = this.toNumber(invoice.totalNetAmount);
 
-            await tx.voucher.update({
-              where: { id: invoice.id },
-              data: {
-                paidAmount: this.decimal(nextPaidAmount, 4),
-                paymentStatus: this.derivePaymentStatus(nextPaidAmount, totalNetAmount),
-                paymentMethod:
-                  nextPaidAmount >= totalNetAmount
-                    ? payload.paymentMethod ?? invoice.paymentMethod ?? null
-                    : null
-              }
-            });
+          const appliedByInvoice = new Map<string, number>();
+          for (const allocation of normalizedAllocations) {
+            appliedByInvoice.set(
+              allocation.invoiceId,
+              roundTo((appliedByInvoice.get(allocation.invoiceId) ?? 0) + allocation.amountApplied, 4)
+            );
           }
+
+          await Promise.all(
+            Array.from(appliedByInvoice.entries()).map(async ([invoiceId, appliedAmount]) => {
+              const base = invoiceState.get(invoiceId);
+              if (!base) {
+                throw new AppError("Invoice state not found", 404, "NOT_FOUND");
+              }
+              const nextPaidAmount = roundTo(base.paidAmount + appliedAmount, 4);
+              await tx.voucher.update({
+                where: { id: invoiceId },
+                data: {
+                  paidAmount: this.decimal(nextPaidAmount, 4),
+                  paymentStatus: this.derivePaymentStatus(nextPaidAmount, base.totalNetAmount),
+                  paymentMethod:
+                    nextPaidAmount >= base.totalNetAmount
+                      ? payload.paymentMethod ?? base.paymentMethod ?? null
+                      : null
+                }
+              });
+            })
+          );
         }
 
         if (payload.partnerId && isDebtSettlementReason) {
@@ -514,16 +537,25 @@ export class VoucherService {
         return voucher;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
-    );
+      );
 
-    return {
-      voucherId: created.id,
-      voucherNo: created.voucherNo,
-      status: created.status,
-      paymentStatus: created.paymentStatus,
-      paidAmount: this.toNumber(created.paidAmount),
-      pdfFilePath: created.pdfFilePath ?? undefined
-    };
+      this.logStep(context, "Cash Voucher Completed", "Completed", {
+        voucherId: created.id,
+        latencyMs: Date.now() - startedAt
+      });
+
+      return {
+        voucherId: created.id,
+        voucherNo: created.voucherNo,
+        status: created.status,
+        paymentStatus: created.paymentStatus,
+        paidAmount: this.toNumber(created.paidAmount),
+        pdfFilePath: created.pdfFilePath ?? undefined
+      };
+    } catch (error) {
+      await this.handleFailure(error, context, "createCashVoucher");
+      throw this.toAppError(error);
+    }
   }
 
   async updateVoucher(voucherId: string, payload: UpdateVoucherRequest, context: ServiceContext): Promise<VoucherTransactionResult> {
@@ -1997,25 +2029,31 @@ export class VoucherService {
     customerId: string,
     items: VoucherItemInput[]
   ): Promise<void> {
+    const lastPriceByProduct = new Map<string, number>();
     for (const item of items) {
-      const nextPrice = roundTo(Number(item.unitPrice) || 0, 4);
-      await tx.customerProductPrice.upsert({
-        where: {
-          customerId_productId: {
-            customerId,
-            productId: item.productId
-          }
-        },
-        create: {
-          customerId,
-          productId: item.productId,
-          lastPrice: this.decimal(nextPrice, 4)
-        },
-        update: {
-          lastPrice: this.decimal(nextPrice, 4)
-        }
-      });
+      lastPriceByProduct.set(item.productId, roundTo(Number(item.unitPrice) || 0, 4));
     }
+
+    await Promise.all(
+      Array.from(lastPriceByProduct.entries()).map(([productId, nextPrice]) =>
+        tx.customerProductPrice.upsert({
+          where: {
+            customerId_productId: {
+              customerId,
+              productId
+            }
+          },
+          create: {
+            customerId,
+            productId,
+            lastPrice: this.decimal(nextPrice, 4)
+          },
+          update: {
+            lastPrice: this.decimal(nextPrice, 4)
+          }
+        })
+      )
+    );
   }
 
   private async getAllowNegativeStock(tx: Tx): Promise<boolean> {
@@ -2253,42 +2291,72 @@ export class VoucherService {
     movements: Array<{ productId: string; quantityChange: Prisma.Decimal }>,
     ledgers: Array<{ partnerId: string; debit: Prisma.Decimal; credit: Prisma.Decimal }>
   ): Promise<void> {
-    for (const movement of movements) {
-      const product = await tx.product.findUnique({
-        where: { id: movement.productId },
-        select: { stockQuantity: true }
-      });
-      if (!product) {
-        throw new AppError(`Product not found during reversal: ${movement.productId}`, 404, "NOT_FOUND");
+    if (movements.length > 0) {
+      const movementByProduct = new Map<string, number>();
+      for (const movement of movements) {
+        movementByProduct.set(
+          movement.productId,
+          roundTo((movementByProduct.get(movement.productId) ?? 0) + this.toNumber(movement.quantityChange), 3)
+        );
       }
 
-      const nowStock = this.toNumber(product.stockQuantity);
-      const reverted = roundTo(nowStock - this.toNumber(movement.quantityChange), 3);
-      if (reverted < 0) {
-        throw new AppError("Concurrency conflict while reversing stock", 409, "CONCURRENCY_CONFLICT");
-      }
-
-      await tx.product.update({
-        where: { id: movement.productId },
-        data: { stockQuantity: this.decimal(reverted, 3) }
+      const productIds = Array.from(movementByProduct.keys());
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, stockQuantity: true }
       });
+      const productMap = new Map(products.map((product) => [product.id, product]));
+
+      await Promise.all(
+        productIds.map(async (productId) => {
+          const product = productMap.get(productId);
+          if (!product) {
+            throw new AppError(`Product not found during reversal: ${productId}`, 404, "NOT_FOUND");
+          }
+
+          const nowStock = this.toNumber(product.stockQuantity);
+          const reverted = roundTo(nowStock - (movementByProduct.get(productId) ?? 0), 3);
+          if (reverted < 0) {
+            throw new AppError("Concurrency conflict while reversing stock", 409, "CONCURRENCY_CONFLICT");
+          }
+
+          await tx.product.update({
+            where: { id: productId },
+            data: { stockQuantity: this.decimal(reverted, 3) }
+          });
+        })
+      );
     }
 
-    for (const entry of ledgers) {
-      const partner = await tx.partner.findUnique({
-        where: { id: entry.partnerId },
-        select: { currentDebt: true }
-      });
-      if (!partner) {
-        continue;
+    if (ledgers.length > 0) {
+      const debtDeltaByPartner = new Map<string, number>();
+      for (const entry of ledgers) {
+        const delta = roundTo(this.toNumber(entry.debit) - this.toNumber(entry.credit), 4);
+        debtDeltaByPartner.set(entry.partnerId, roundTo((debtDeltaByPartner.get(entry.partnerId) ?? 0) + delta, 4));
       }
-      const delta = this.toNumber(entry.debit) - this.toNumber(entry.credit);
-      await tx.partner.update({
-        where: { id: entry.partnerId },
-        data: {
-          currentDebt: this.decimal(roundTo(this.toNumber(partner.currentDebt) - delta, 4), 4)
-        }
+
+      const partnerIds = Array.from(debtDeltaByPartner.keys());
+      const partners = await tx.partner.findMany({
+        where: { id: { in: partnerIds } },
+        select: { id: true, currentDebt: true }
       });
+      const partnerMap = new Map(partners.map((partner) => [partner.id, partner]));
+
+      await Promise.all(
+        partnerIds.map(async (partnerId) => {
+          const partner = partnerMap.get(partnerId);
+          if (!partner) {
+            return;
+          }
+          const updatedDebt = roundTo(this.toNumber(partner.currentDebt) - (debtDeltaByPartner.get(partnerId) ?? 0), 4);
+          await tx.partner.update({
+            where: { id: partnerId },
+            data: {
+              currentDebt: this.decimal(updatedDebt, 4)
+            }
+          });
+        })
+      );
     }
   }
 

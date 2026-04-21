@@ -40,3 +40,4 @@ masterDataRouter.patch("/users/:id/reset-password", asyncHandler(UserController.
 
 masterDataRouter.get("/system-settings", asyncHandler(SystemSettingController.getCompanySettings));
 masterDataRouter.put("/system-settings", asyncHandler(SystemSettingController.updateCompanySettings));
+masterDataRouter.post("/system-settings/accounting-reset", asyncHandler(SystemSettingController.exportAndResetAccountingData));

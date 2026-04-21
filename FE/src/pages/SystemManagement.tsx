@@ -25,6 +25,7 @@ import { DeleteOutlined, EditOutlined, KeyOutlined, PlusOutlined, ReloadOutlined
 import type { PermissionMap } from "../types/auth";
 import type { CompanySettings, IUserItem, UserMutationPayload } from "../types";
 import {
+  exportAndResetAccountingData,
   createUser,
   deleteUser,
   fetchCompanySettings,
@@ -159,6 +160,19 @@ export function SystemManagementPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["system-settings"] });
       notification.success({ message: "Đã lưu cấu hình" });
+    }
+  });
+
+  const accountingResetMutation = useMutation({
+    mutationFn: exportAndResetAccountingData,
+    onSuccess: ({ blob, fileName }) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      notification.success({ message: "Đã tải snapshot và xóa dữ liệu sổ sách" });
     }
   });
 
@@ -391,7 +405,38 @@ export function SystemManagementPage() {
                     {
                       key: "finance",
                       label: "Tài chính",
-                      children: <Typography.Text type="secondary">Thiết lập tài chính sẽ được bổ sung tiếp.</Typography.Text>
+                      children: (
+                        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                          <Typography.Text type="secondary">Thiết lập tài chính sẽ được bổ sung tiếp.</Typography.Text>
+                          <Card size="small" bordered>
+                            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                              <Typography.Text strong>Dữ liệu sổ sách</Typography.Text>
+                              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                                Chức năng này sẽ tải 1 file Excel snapshot rồi xóa toàn bộ chứng từ, báo giá, công nợ, sổ kho, đợt thu nợ và đưa tồn kho, công nợ hiện tại về 0. Danh mục, người dùng và cấu hình hệ thống vẫn được giữ lại.
+                              </Typography.Paragraph>
+                              <Button
+                                danger
+                                loading={accountingResetMutation.isPending}
+                                onClick={() => {
+                                  Modal.confirm({
+                                    title: "Xóa toàn bộ dữ liệu sổ sách",
+                                    content:
+                                      "Hệ thống sẽ tải snapshot Excel và xóa sạch dữ liệu sổ sách hiện tại. Chỉ nên dùng khi chốt chu kỳ và chuẩn bị nhập đầu kỳ mới.",
+                                    okText: "Tải snapshot và xóa",
+                                    okButtonProps: { danger: true, loading: accountingResetMutation.isPending },
+                                    cancelText: "Hủy",
+                                    onOk: async () => {
+                                      await accountingResetMutation.mutateAsync();
+                                    }
+                                  });
+                                }}
+                              >
+                                Tải snapshot Excel và xóa dữ liệu sổ sách
+                              </Button>
+                            </Space>
+                          </Card>
+                        </Space>
+                      )
                     }
                   ]}
                 />
