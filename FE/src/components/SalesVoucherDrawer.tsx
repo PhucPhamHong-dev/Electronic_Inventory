@@ -147,6 +147,17 @@ function createNoteRow(): SalesRow {
   };
 }
 
+function cloneItemRow(source: SalesRow): SalesRow {
+  if (source.rowType === "NOTE") {
+    return createEmptyRow();
+  }
+
+  return recalculateRow({
+    ...source,
+    key: crypto.randomUUID()
+  });
+}
+
 function recalculateRow(input: SalesRow): SalesRow {
   if (input.rowType === "NOTE") {
     return input;
@@ -302,8 +313,9 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     return -1;
   };
 
-  const addRowAndFocus = (columnKey: NavigableColumnKey) => {
-    const newRow = createEmptyRow();
+  const addRowAndFocus = (columnKey: NavigableColumnKey, sourceRowIndex?: number) => {
+    const sourceRow = sourceRowIndex !== undefined ? rows[sourceRowIndex] : undefined;
+    const newRow = sourceRow ? cloneItemRow(sourceRow) : createEmptyRow();
     setRows((prev) => [...prev, newRow]);
     requestAnimationFrame(() => {
       const target = document.getElementById(buildCellId(newRow.key, columnKey)) as HTMLElement | null;
@@ -331,7 +343,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       if (nextIndex >= 0) {
         focusCell(nextIndex, columnKey);
       } else {
-        addRowAndFocus(columnKey);
+        addRowAndFocus(columnKey, rowIndex);
       }
       return;
     }
@@ -627,11 +639,16 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
 
   const commitProductSelection = (rowKey: string, productId: string) => {
     const selected = productMap.get(productId);
+    const currentRow = rows.find((row) => row.key === rowKey);
+    const preservedQuantity = currentRow?.rowType === "ITEM" ? currentRow.quantity : 0;
     updateRow(rowKey, {
       productId,
       productName: selected?.name ?? "",
       unitName: selected?.unitName ?? "",
-      unitPrice: selected ? Number(isPurchaseMode ? (selected.costPrice || selected.sellingPrice || 0) : (selected.sellingPrice || selected.costPrice || 0)) : 0
+      quantity: preservedQuantity,
+      unitPrice: selected ? Number(isPurchaseMode ? (selected.costPrice || selected.sellingPrice || 0) : (selected.sellingPrice || selected.costPrice || 0)) : 0,
+      discountRate: 0,
+      taxRate: 0
     });
     setProductSearchDrafts((prev) => {
       if (!prev[rowKey]) {
