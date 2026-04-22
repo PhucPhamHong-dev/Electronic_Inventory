@@ -113,7 +113,7 @@ Sau đó:
 - copy nội dung file private key `~/.ssh/github_actions_deploy`
 - dán vào secret `SSH_PRIVATE_KEY`
 
-## 5) Ghi chú kỹ thuật
+## 5) Ghi chú kỹ thuậtt
 
 - Backend chạy nội bộ cổng `4100` trong network Docker.
 - Frontend build static và serve bằng Nginx.
