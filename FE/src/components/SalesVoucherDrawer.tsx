@@ -249,6 +249,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
   const [paymentFlow, setPaymentFlow] = useState<"UNPAID" | "IMMEDIATE">("UNPAID");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [quickProductOpen, setQuickProductOpen] = useState(false);
+  const [productSearchDrafts, setProductSearchDrafts] = useState<Record<string, string>>({});
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [partnerModalMode, setPartnerModalMode] = useState<"create" | "edit">("create");
   const watchedVoucherNo = Form.useWatch("voucherNo", form);
@@ -271,20 +272,22 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         { label: "Chưa thu tiền", value: "UNPAID" },
         { label: "Thu tiền ngay", value: "IMMEDIATE" }
       ];
-  const editableColumnKeys = ["quantity", "unitPrice", "discountRate", "taxRate"] as const;
-  type EditableColumnKey = (typeof editableColumnKeys)[number];
+  const navigableColumnKeys = ["productId", "quantity", "unitPrice", "discountRate", "taxRate"] as const;
+  type NavigableColumnKey = (typeof navigableColumnKeys)[number];
 
-  const buildCellId = (rowKey: string, columnKey: EditableColumnKey) => `voucher-cell-${rowKey}-${columnKey}`;
+  const buildCellId = (rowKey: string, columnKey: NavigableColumnKey) => `voucher-cell-${rowKey}-${columnKey}`;
 
-  const focusCell = (rowIndex: number, columnKey: EditableColumnKey) => {
+  const focusCell = (rowIndex: number, columnKey: NavigableColumnKey) => {
     const row = rows[rowIndex];
     if (!row || row.rowType === "NOTE") {
       return;
     }
-    const target = document.getElementById(buildCellId(row.key, columnKey)) as HTMLInputElement | null;
+    const target = document.getElementById(buildCellId(row.key, columnKey)) as HTMLElement | null;
     if (target) {
       target.focus();
-      target.select?.();
+      if (target instanceof HTMLInputElement) {
+        target.select();
+      }
     }
   };
 
@@ -299,19 +302,21 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     return -1;
   };
 
-  const addRowAndFocus = (columnKey: EditableColumnKey) => {
+  const addRowAndFocus = (columnKey: NavigableColumnKey) => {
     const newRow = createEmptyRow();
     setRows((prev) => [...prev, newRow]);
     requestAnimationFrame(() => {
-      const target = document.getElementById(buildCellId(newRow.key, columnKey)) as HTMLInputElement | null;
+      const target = document.getElementById(buildCellId(newRow.key, columnKey)) as HTMLElement | null;
       if (target) {
         target.focus();
-        target.select?.();
+        if (target instanceof HTMLInputElement) {
+          target.select();
+        }
       }
     });
   };
 
-  const handleCellKeyDown = (rowIndex: number, columnKey: EditableColumnKey) => (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleCellKeyDown = (rowIndex: number, columnKey: NavigableColumnKey) => (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "ArrowUp") {
       event.preventDefault();
       const nextIndex = findAdjacentItemRow(rowIndex, -1);
@@ -332,17 +337,17 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      const currentIndex = editableColumnKeys.indexOf(columnKey);
+      const currentIndex = navigableColumnKeys.indexOf(columnKey);
       if (currentIndex > 0) {
-        focusCell(rowIndex, editableColumnKeys[currentIndex - 1]);
+        focusCell(rowIndex, navigableColumnKeys[currentIndex - 1]);
       }
       return;
     }
     if (event.key === "ArrowRight") {
       event.preventDefault();
-      const currentIndex = editableColumnKeys.indexOf(columnKey);
-      if (currentIndex >= 0 && currentIndex < editableColumnKeys.length - 1) {
-        focusCell(rowIndex, editableColumnKeys[currentIndex + 1]);
+      const currentIndex = navigableColumnKeys.indexOf(columnKey);
+      if (currentIndex >= 0 && currentIndex < navigableColumnKeys.length - 1) {
+        focusCell(rowIndex, navigableColumnKeys[currentIndex + 1]);
       }
     }
   };
@@ -414,6 +419,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       setPaymentFlow("UNPAID");
       setPaymentMethod("CASH");
       setQuickProductOpen(false);
+      setProductSearchDrafts({});
       setPartnerModalOpen(false);
       setPartnerModalMode("create");
       return;
@@ -425,6 +431,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       setRows([createEmptyRow()]);
       setPaymentFlow("UNPAID");
       setPaymentMethod("CASH");
+      setProductSearchDrafts({});
     }
   }, [form, isEditMode, open, quickProductForm]);
 
@@ -618,6 +625,25 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     setRows((prev) => prev.map((row) => row.key !== rowKey ? row : recalculateRow({ ...row, ...patch })));
   };
 
+  const commitProductSelection = (rowKey: string, productId: string) => {
+    const selected = productMap.get(productId);
+    updateRow(rowKey, {
+      productId,
+      productName: selected?.name ?? "",
+      unitName: selected?.unitName ?? "",
+      unitPrice: selected ? Number(isPurchaseMode ? (selected.costPrice || selected.sellingPrice || 0) : (selected.sellingPrice || selected.costPrice || 0)) : 0
+    });
+    setProductSearchDrafts((prev) => {
+      if (!prev[rowKey]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    void applyCustomerSuggestedPrice(rowKey, productId);
+  };
+
   const applyCustomerSuggestedPrice = async (rowKey: string, productId: string) => {
     if (isPurchaseMode || isEditMode || !selectedPartnerId) {
       return;
@@ -652,6 +678,36 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     const next = prev.filter((row) => row.key !== rowKey);
     return next.length > 0 ? next : [createEmptyRow()];
   });
+
+  const tryResolveProductDraft = (rowKey: string): string | null => {
+    const keyword = String(productSearchDrafts[rowKey] ?? "").trim().toLowerCase();
+    if (!keyword) {
+      return null;
+    }
+    const exactSkuMatches = productOptions.filter((option) => option.skuCode.trim().toLowerCase() === keyword);
+    if (exactSkuMatches.length === 1) {
+      return exactSkuMatches[0].value;
+    }
+    const exactNameMatches = productOptions.filter((option) => option.productName.trim().toLowerCase() === keyword);
+    if (exactNameMatches.length === 1) {
+      return exactNameMatches[0].value;
+    }
+    return null;
+  };
+
+  const handleProductCellKeyDown = (rowIndex: number, rowKey: string) => (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "Enter") {
+      handleCellKeyDown(rowIndex, "productId")(event);
+      return;
+    }
+
+    const resolvedProductId = tryResolveProductDraft(rowKey);
+    if (resolvedProductId) {
+      commitProductSelection(rowKey, resolvedProductId);
+    }
+
+    handleCellKeyDown(rowIndex, "productId")(event);
+  };
 
   const buildPayload = (): CreateVoucherPayload => {
     const values = form.getFieldsValue();
@@ -807,6 +863,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         if (record.rowType === "NOTE") return <Typography.Text type="secondary">Ghi chú</Typography.Text>;
         return (
           <AppSelect
+            id={buildCellId(record.key, "productId")}
             value={record.productId}
             showSearch
             placeholder="Chọn hàng hóa"
@@ -817,17 +874,14 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
               return <div className="sales-voucher-product-option"><span>{`${data.skuCode} - ${data.productName}`}</span><span className="sales-voucher-product-stock">{`SL: ${formatNumber(data.stockQuantity)}`}</span></div>;
             }}
             filterOption={(input, option) => ((option as ProductSelectOption | undefined)?.searchText ?? "").includes(input.toLowerCase())}
+            onSearch={(keyword) => {
+              setProductSearchDrafts((prev) => ({ ...prev, [record.key]: keyword }));
+            }}
             dropdownRender={(menu) => <><>{menu}</><Divider style={{ margin: "8px 0" }} /><Button type="text" icon={<PlusOutlined />} block onClick={() => setQuickProductOpen(true)}>+ Thêm mới (F9)</Button></>}
             onChange={(productId) => {
-              const selected = productMap.get(productId);
-              updateRow(record.key, {
-                productId,
-                productName: selected?.name ?? "",
-                unitName: selected?.unitName ?? "",
-                unitPrice: selected ? Number(isPurchaseMode ? (selected.costPrice || selected.sellingPrice || 0) : (selected.sellingPrice || selected.costPrice || 0)) : 0
-              });
-              void applyCustomerSuggestedPrice(record.key, productId);
+              commitProductSelection(record.key, productId);
             }}
+            onKeyDown={handleProductCellKeyDown(rows.findIndex((row) => row.key === record.key), record.key)}
           />
         );
       }
