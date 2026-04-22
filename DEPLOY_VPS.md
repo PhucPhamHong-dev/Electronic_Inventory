@@ -46,7 +46,74 @@ docker compose -f docker-compose.vps.yml restart
 docker compose -f docker-compose.vps.yml down
 ```
 
-## 4) Ghi chú kỹ thuật
+## 4) CI/CD tự động bằng GitHub Actions
+
+Workflow đã có sẵn tại:
+
+```text
+.github/workflows/ci-cd.yml
+```
+
+Khi push lên nhánh `main`, GitHub Actions sẽ:
+
+1. Build backend
+2. Build frontend
+3. SSH vào VPS
+4. Chạy script deploy:
+
+```bash
+./deploy.sh
+```
+
+Script này sẽ:
+
+```bash
+git fetch origin main
+git checkout main
+git pull --ff-only origin main
+docker compose -f docker-compose.vps.yml up -d --build be fe
+```
+
+### Secrets cần thêm trên GitHub
+
+Vào:
+
+```text
+Repo -> Settings -> Secrets and variables -> Actions
+```
+
+Tạo các secret sau:
+
+```text
+SSH_HOST=14.225.222.172
+SSH_PORT=22
+SSH_USER=root
+SSH_PRIVATE_KEY=<private key dùng để SSH vào VPS>
+```
+
+### Gợi ý tạo SSH key riêng cho CI/CD
+
+Chạy trên máy của bạn:
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/github_actions_deploy
+```
+
+Thêm public key lên VPS:
+
+```bash
+mkdir -p ~/.ssh
+cat ~/.ssh/github_actions_deploy.pub >> ~/.ssh/authorized_keys
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Sau đó:
+
+- copy nội dung file private key `~/.ssh/github_actions_deploy`
+- dán vào secret `SSH_PRIVATE_KEY`
+
+## 5) Ghi chú kỹ thuật
 
 - Backend chạy nội bộ cổng `4100` trong network Docker.
 - Frontend build static và serve bằng Nginx.
