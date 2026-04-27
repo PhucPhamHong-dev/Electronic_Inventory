@@ -1,0 +1,2 @@
+ALTER TYPE "public"."report_type"
+ADD VALUE IF NOT EXISTS 'SO_CHI_TIET_VAT_TU_HANG_HOA';

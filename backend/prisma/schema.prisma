@@ -1,0 +1,551 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum VoucherType {
+  PURCHASE
+  SALES
+  SALES_RETURN
+  CONVERSION
+  RECEIPT
+  PAYMENT
+  OPENING_BALANCE
+
+  @@map("voucher_type")
+}
+
+enum VoucherStatus {
+  DRAFT
+  BOOKED
+
+  @@map("voucher_status")
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+
+  @@map("payment_status")
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+
+  @@map("payment_method")
+}
+
+enum PaymentReason {
+  CUSTOMER_PAYMENT
+  SUPPLIER_PAYMENT
+  BANK_WITHDRAWAL
+  BANK_DEPOSIT
+  OTHER
+
+  @@map("payment_reason")
+}
+
+enum DebtCollectionStatus {
+  PENDING
+  COMPLETED
+
+  @@map("debt_collection_status")
+}
+
+enum QuotationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("quotation_status")
+}
+
+enum PartnerType {
+  SUPPLIER
+  CUSTOMER
+  BOTH
+
+  @@map("partner_type")
+}
+
+enum PartnerGroup {
+  CUSTOMER
+  SUPPLIER
+
+  @@map("partner_group")
+}
+
+enum InventoryMovementType {
+  PURCHASE_IN
+  SALES_OUT
+  SALES_RETURN_IN
+  CONVERSION_OUT
+  CONVERSION_IN
+  REVERSAL_IN
+  REVERSAL_OUT
+
+  @@map("inventory_movement_type")
+}
+
+enum AuditAction {
+  INSERT
+  UPDATE
+  DELETE
+  BOOK
+  EDIT
+  LOGIN
+  AUTH
+  FAILED
+
+  @@map("audit_action")
+}
+
+enum ReportType {
+  SO_CHI_TIET_BAN_HANG
+  SO_CHI_TIET_MUA_HANG
+  SO_CHI_TIET_VAT_TU_HANG_HOA
+  TONG_HOP_CONG_NO
+  TONG_HOP_CONG_NO_NCC
+
+  @@map("report_type")
+}
+
+enum ReportPageSize {
+  A4_PORTRAIT
+  A4_LANDSCAPE
+
+  @@map("report_page_size")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  username     String    @unique @db.VarChar(128)
+  passwordHash String    @map("password_hash")
+  fullName     String?   @map("full_name") @db.VarChar(255)
+  permissions  Json      @default("{}")
+  isActive     Boolean   @default(true) @map("is_active")
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdVouchers Voucher[]        @relation("VoucherCreatedBy")
+  updatedVouchers Voucher[]        @relation("VoucherUpdatedBy")
+  deletedVouchers Voucher[]        @relation("VoucherDeletedBy")
+  createdQuotations Quotation[]    @relation("QuotationCreatedBy")
+  updatedQuotations Quotation[]    @relation("QuotationUpdatedBy")
+  deletedQuotations Quotation[]    @relation("QuotationDeletedBy")
+  auditLogs       AuditLog[]
+  reportTemplates ReportTemplate[] @relation("ReportTemplateCreator")
+  reportFilters   ReportFilter[]   @relation("ReportFilterCreator")
+
+  @@map("users")
+}
+
+model Category {
+  id        String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code      String    @unique @db.VarChar(64)
+  name      String    @db.VarChar(255)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Partner {
+  id          String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code        String       @unique @db.VarChar(64)
+  name        String       @db.VarChar(255)
+  group       PartnerGroup @default(CUSTOMER) @map("group")
+  partnerType PartnerType  @default(BOTH) @map("partner_type")
+  taxCode     String?      @map("tax_code") @db.VarChar(64)
+  phone       String?      @db.VarChar(32)
+  email       String?      @db.VarChar(128)
+  address     String?
+  currentDebt Decimal      @default(0) @map("current_debt") @db.Decimal(18, 4)
+  deletedAt   DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  vouchers              Voucher[]
+  arLedger              ArLedger[]
+  quotations            Quotation[]
+  debtCollectionDetails DebtCollectionDetail[]
+  customerProductPrices CustomerProductPrice[] @relation("CustomerProductPriceCustomer")
+
+  @@index([deletedAt, code], map: "partners_deleted_at_code_idx")
+  @@index([deletedAt, name], map: "partners_deleted_at_name_idx")
+  @@map("partners")
+}
+
+model Product {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  skuCode         String    @unique @map("sku_code") @db.VarChar(128)
+  name            String    @db.VarChar(255)
+  parentId        String?   @map("parent_id") @db.Uuid
+  categoryId      String?   @map("category_id") @db.Uuid
+  unitId          String?   @map("unit_id") @db.Uuid
+  unitName        String    @default("unit") @map("unit_name") @db.VarChar(32)
+  warehouseId     String?   @map("warehouse_id") @db.Uuid
+  warehouseName   String?   @map("warehouse_name") @db.VarChar(128)
+  conversionRatio Decimal   @default(1) @map("conversion_ratio") @db.Decimal(18, 6)
+  costPrice       Decimal   @default(0) @map("cost_price") @db.Decimal(18, 4)
+  sellingPrice    Decimal   @default(0) @map("selling_price") @db.Decimal(18, 4)
+  stockQuantity   Decimal   @default(0) @map("stock_quantity") @db.Decimal(18, 3)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  parent             Product?            @relation("ProductParent", fields: [parentId], references: [id])
+  children           Product[]           @relation("ProductParent")
+  category           Category?           @relation(fields: [categoryId], references: [id])
+  unit               Unit?               @relation(fields: [unitId], references: [id])
+  warehouse          Warehouse?          @relation(fields: [warehouseId], references: [id])
+  voucherItems       VoucherItem[]
+  inventoryMovements InventoryMovement[]
+  quotationDetails   QuotationDetail[]
+  customerProductPrices CustomerProductPrice[] @relation("CustomerProductPriceProduct")
+
+  @@index([warehouseId], map: "products_warehouse_id_idx")
+  @@map("products")
+}
+
+model CustomerProductPrice {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  lastPrice  Decimal  @map("last_price") @db.Decimal(18, 4)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customer Partner @relation("CustomerProductPriceCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  product  Product @relation("CustomerProductPriceProduct", fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, productId], map: "customer_product_prices_customer_product_uniq")
+  @@index([customerId], map: "customer_product_prices_customer_id_idx")
+  @@index([productId], map: "customer_product_prices_product_id_idx")
+  @@map("customer_product_prices")
+}
+
+model Warehouse {
+  id        String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String    @unique @db.VarChar(128)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  products Product[]
+
+  @@map("warehouses")
+}
+
+model Unit {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String   @unique @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  products Product[]
+
+  @@map("units")
+}
+
+model Voucher {
+  id                  String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  voucherNo           String?        @unique @map("voucher_no") @db.VarChar(32)
+  type                VoucherType
+  status              VoucherStatus  @default(DRAFT)
+  paymentStatus       PaymentStatus  @default(UNPAID) @map("payment_status")
+  paymentMethod       PaymentMethod? @map("payment_method")
+  paymentReason       PaymentReason? @map("payment_reason")
+  partnerId           String?        @map("partner_id") @db.Uuid
+  originalVoucherId   String?        @map("original_voucher_id") @db.Uuid
+  voucherDate         DateTime       @default(now()) @map("voucher_date") @db.Date
+  dueDate             DateTime?      @map("due_date") @db.Date
+  note                String?
+  totalAmount         Decimal        @default(0) @map("total_amount") @db.Decimal(18, 4)
+  totalDiscount       Decimal        @default(0) @map("total_discount") @db.Decimal(18, 4)
+  totalTaxAmount      Decimal        @default(0) @map("total_tax_amount") @db.Decimal(18, 4)
+  totalNetAmount      Decimal        @default(0) @map("total_net_amount") @db.Decimal(18, 4)
+  paidAmount          Decimal        @default(0) @map("paid_amount") @db.Decimal(18, 4)
+  isInventoryInput    Boolean        @default(true) @map("is_inventory_input")
+  isEdited            Boolean        @default(false) @map("is_edited")
+  editedFromVoucherId String?        @map("edited_from_voucher_id") @db.Uuid
+  pdfFilePath         String?        @map("pdf_file_path")
+  metadata            Json           @default("{}")
+  createdBy           String?        @map("created_by") @db.Uuid
+  updatedBy           String?        @map("updated_by") @db.Uuid
+  lastEditedBy        String?        @map("last_edited_by") @db.Uuid
+  lastEditedAt        DateTime?      @map("last_edited_at") @db.Timestamptz(6)
+  deletedBy           String?        @map("deleted_by") @db.Uuid
+  quotationId         String?        @map("quotation_id") @db.Uuid
+  deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  partner              Partner?            @relation(fields: [partnerId], references: [id])
+  creator              User?               @relation("VoucherCreatedBy", fields: [createdBy], references: [id])
+  updater              User?               @relation("VoucherUpdatedBy", fields: [updatedBy], references: [id])
+  deleter              User?               @relation("VoucherDeletedBy", fields: [deletedBy], references: [id])
+  quotation            Quotation?          @relation(fields: [quotationId], references: [id])
+  originalVoucher      Voucher?            @relation("SalesReturnOriginalVoucher", fields: [originalVoucherId], references: [id])
+  returnChildren       Voucher[]           @relation("SalesReturnOriginalVoucher")
+  editedFromVoucher    Voucher?            @relation("VoucherEditSource", fields: [editedFromVoucherId], references: [id])
+  editedChildren       Voucher[]           @relation("VoucherEditSource")
+  items                VoucherItem[]
+  inventoryMovements   InventoryMovement[]
+  arLedger             ArLedger[]
+  allocationsAsPayment VoucherAllocation[] @relation("PaymentVoucherAllocations")
+  allocationsAsInvoice VoucherAllocation[] @relation("InvoiceVoucherAllocations")
+
+  @@index([deletedAt, voucherNo], map: "vouchers_deleted_at_voucher_no_idx")
+  @@index([deletedAt, type, createdAt(sort: Desc)], map: "vouchers_deleted_at_type_created_at_idx")
+  @@index([partnerId], map: "vouchers_partner_id_idx")
+  @@index([originalVoucherId], map: "vouchers_original_voucher_id_idx")
+  @@map("vouchers")
+}
+
+model DebtCollection {
+  id              String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name            String               @db.VarChar(255)
+  description     String?
+  status          DebtCollectionStatus @default(PENDING)
+  startDate       DateTime             @map("start_date") @db.Date
+  endDate         DateTime?            @map("end_date") @db.Date
+  totalDebtAmount Decimal              @default(0) @map("total_debt_amount") @db.Decimal(18, 4)
+  targetPercent   Decimal              @default(0) @map("target_percent") @db.Decimal(10, 2)
+  targetAmount    Decimal              @default(0) @map("target_amount") @db.Decimal(18, 4)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  details DebtCollectionDetail[]
+
+  @@map("debt_collections")
+}
+
+model DebtCollectionDetail {
+  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  debtCollectionId String    @map("debt_collection_id") @db.Uuid
+  partnerId        String    @map("partner_id") @db.Uuid
+  expectedAmount   Decimal   @default(0) @map("expected_amount") @db.Decimal(18, 4)
+  actualAmount     Decimal   @default(0) @map("actual_amount") @db.Decimal(18, 4)
+  resultText       String?   @map("result_text")
+  note             String?
+  collectedAt      DateTime? @map("collected_at") @db.Timestamptz(6)
+  promisedDate     DateTime? @map("promised_date") @db.Date
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  debtCollection DebtCollection @relation(fields: [debtCollectionId], references: [id])
+  partner        Partner        @relation(fields: [partnerId], references: [id])
+
+  @@unique([debtCollectionId, partnerId], map: "debt_collection_details_collection_partner_uniq")
+  @@index([partnerId], map: "debt_collection_details_partner_id_idx")
+  @@map("debt_collection_details")
+}
+
+model Quotation {
+  id             String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  quotationNo    String          @unique @map("quotation_no") @db.VarChar(32)
+  partnerId      String          @map("partner_id") @db.Uuid
+  totalAmount    Decimal         @default(0) @map("total_amount") @db.Decimal(18, 4)
+  totalDiscount  Decimal         @default(0) @map("total_discount") @db.Decimal(18, 4)
+  totalTax       Decimal         @default(0) @map("total_tax") @db.Decimal(18, 4)
+  totalNetAmount Decimal         @default(0) @map("total_net_amount") @db.Decimal(18, 4)
+  notes          String?
+  status         QuotationStatus @default(PENDING)
+  createdBy      String?         @map("created_by") @db.Uuid
+  updatedBy      String?         @map("updated_by") @db.Uuid
+  lastEditedBy   String?         @map("last_edited_by") @db.Uuid
+  lastEditedAt   DateTime?       @map("last_edited_at") @db.Timestamptz(6)
+  deletedBy      String?         @map("deleted_by") @db.Uuid
+  deletedAt      DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  partner  Partner           @relation(fields: [partnerId], references: [id])
+  creator  User?             @relation("QuotationCreatedBy", fields: [createdBy], references: [id])
+  updater  User?             @relation("QuotationUpdatedBy", fields: [updatedBy], references: [id])
+  deleter  User?             @relation("QuotationDeletedBy", fields: [deletedBy], references: [id])
+  details  QuotationDetail[]
+  vouchers Voucher[]
+
+  @@map("quotations")
+}
+
+model QuotationDetail {
+  id                     String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  quotationId            String   @map("quotation_id") @db.Uuid
+  productId              String   @map("product_id") @db.Uuid
+  unitId                 String?  @map("unit_id") @db.VarChar(64)
+  quantity               Decimal  @db.Decimal(18, 3)
+  price                  Decimal  @db.Decimal(18, 4)
+  discountPercent        Decimal  @default(0) @map("discount_percent") @db.Decimal(9, 4)
+  unitPriceAfterDiscount Decimal  @default(0) @map("unit_price_after_discount") @db.Decimal(18, 4)
+  taxPercent             Decimal  @default(0) @map("tax_percent") @db.Decimal(9, 4)
+  netAmount              Decimal  @default(0) @map("net_amount") @db.Decimal(18, 4)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  quotation Quotation @relation(fields: [quotationId], references: [id])
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@map("quotation_details")
+}
+
+model VoucherItem {
+  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  voucherId      String   @map("voucher_id") @db.Uuid
+  productId      String   @map("product_id") @db.Uuid
+  quantity       Decimal  @db.Decimal(18, 3)
+  unitPrice      Decimal  @map("unit_price") @db.Decimal(18, 4)
+  discountRate   Decimal  @default(0) @map("discount_rate") @db.Decimal(9, 4)
+  discountAmount Decimal  @default(0) @map("discount_amount") @db.Decimal(18, 4)
+  taxRate        Decimal  @default(0) @map("tax_rate") @db.Decimal(9, 4)
+  taxAmount      Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  netPrice       Decimal  @map("net_price") @db.Decimal(18, 4)
+  cogs           Decimal  @default(0) @db.Decimal(18, 4)
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  voucher            Voucher             @relation(fields: [voucherId], references: [id])
+  product            Product             @relation(fields: [productId], references: [id])
+  inventoryMovements InventoryMovement[]
+
+  @@map("voucher_items")
+}
+
+model VoucherAllocation {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  paymentVoucherId String   @map("payment_voucher_id") @db.Uuid
+  invoiceVoucherId String   @map("invoice_voucher_id") @db.Uuid
+  amountApplied    Decimal  @map("amount_applied") @db.Decimal(18, 4)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  paymentVoucher Voucher @relation("PaymentVoucherAllocations", fields: [paymentVoucherId], references: [id])
+  invoiceVoucher Voucher @relation("InvoiceVoucherAllocations", fields: [invoiceVoucherId], references: [id])
+
+  @@index([paymentVoucherId], map: "voucher_allocations_payment_voucher_id_idx")
+  @@index([invoiceVoucherId], map: "voucher_allocations_invoice_voucher_id_idx")
+  @@map("voucher_allocations")
+}
+
+model InventoryMovement {
+  id             String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  voucherId      String                @map("voucher_id") @db.Uuid
+  voucherItemId  String?               @map("voucher_item_id") @db.Uuid
+  productId      String                @map("product_id") @db.Uuid
+  movementType   InventoryMovementType @map("movement_type")
+  quantityBefore Decimal               @map("quantity_before") @db.Decimal(18, 3)
+  quantityChange Decimal               @map("quantity_change") @db.Decimal(18, 3)
+  quantityAfter  Decimal               @map("quantity_after") @db.Decimal(18, 3)
+  unitCost       Decimal               @default(0) @map("unit_cost") @db.Decimal(18, 4)
+  totalCost      Decimal               @default(0) @map("total_cost") @db.Decimal(18, 4)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  voucher     Voucher      @relation(fields: [voucherId], references: [id])
+  voucherItem VoucherItem? @relation(fields: [voucherItemId], references: [id])
+  product     Product      @relation(fields: [productId], references: [id])
+
+  @@map("inventory_movements")
+}
+
+model ArLedger {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  voucherId    String   @map("voucher_id") @db.Uuid
+  partnerId    String   @map("partner_id") @db.Uuid
+  debit        Decimal  @default(0) @db.Decimal(18, 4)
+  credit       Decimal  @default(0) @db.Decimal(18, 4)
+  balanceAfter Decimal  @default(0) @map("balance_after") @db.Decimal(18, 4)
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  voucher Voucher @relation(fields: [voucherId], references: [id])
+  partner Partner @relation(fields: [partnerId], references: [id])
+
+  @@map("ar_ledger")
+}
+
+model AuditLog {
+  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId        String?     @map("user_id") @db.Uuid
+  action        AuditAction
+  entityName    String      @map("entity_name") @db.VarChar(128)
+  entityId      String?     @map("entity_id") @db.Uuid
+  oldValue      Json?       @map("old_value")
+  newValue      Json?       @map("new_value")
+  ipAddress     String?     @map("ip_address") @db.Inet
+  correlationId String?     @map("correlation_id") @db.VarChar(64)
+  message       String?
+  errorStack    String?     @map("error_stack")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  settingKey String   @unique @map("setting_key") @db.VarChar(128)
+  valueText  String?  @map("value_text")
+  valueJson  Json?    @map("value_json")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_settings")
+}
+
+model ReportTemplate {
+  id         String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  reportType ReportType     @map("report_type")
+  name       String         @db.VarChar(255)
+  config     Json           @default("{}")
+  pageSize   ReportPageSize @default(A4_PORTRAIT) @map("page_size")
+  createdBy  String?        @map("created_by") @db.Uuid
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  creator User? @relation("ReportTemplateCreator", fields: [createdBy], references: [id])
+
+  @@index([reportType], map: "report_templates_report_type_idx")
+  @@index([createdBy], map: "report_templates_created_by_idx")
+  @@map("report_templates")
+}
+
+model ReportFilter {
+  id         String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  reportType ReportType @map("report_type")
+  name       String     @default("Mẫu lọc mặc định") @db.VarChar(255)
+  config     Json       @default("{}")
+  createdBy  String?    @map("created_by") @db.Uuid
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  creator User? @relation("ReportFilterCreator", fields: [createdBy], references: [id])
+
+  @@index([reportType], map: "report_filters_report_type_idx")
+  @@index([createdBy], map: "report_filters_created_by_idx")
+  @@map("report_filters")
+}
+
+model VoucherNumberCounter {
+  id          String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  voucherType VoucherType @map("voucher_type")
+  fiscalYear  Int         @map("fiscal_year")
+  lastNumber  Int         @default(0) @map("last_number")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([voucherType, fiscalYear], map: "voucher_number_counters_type_year_uniq")
+  @@map("voucher_number_counters")
+}
