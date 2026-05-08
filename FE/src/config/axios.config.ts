@@ -7,7 +7,7 @@ import { useAuthStore } from "../store/useAuthStore";
 
 function resolveApiBaseUrl(): string {
   const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  const normalizedBaseUrl = (configuredBaseUrl || "http://127.0.0.1:3000/api").replace(/\/+$/, "");
+  const normalizedBaseUrl = (configuredBaseUrl || "/api").replace(/\/+$/, "");
 
   if (normalizedBaseUrl.endsWith("/api")) {
     return normalizedBaseUrl;

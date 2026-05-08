@@ -23,7 +23,8 @@ npm run dev
 
 ## Biến môi trường
 ```env
-VITE_API_BASE_URL=http://127.0.0.1:3000
+VITE_API_BASE_URL=/api
+VITE_API_PROXY_TARGET=http://127.0.0.1:3000
 VITE_SUPABASE_URL=https://djcxyndgoqbzngrxxojn.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_WmUK42KTndAp562N0e-k-g_csImdIKP
 ```
@@ -79,6 +80,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_WmUK42KTndAp562N0e-k-g_csImdIKP
 
 ## Lưu ý API
 - Tất cả endpoint đi qua `VITE_API_BASE_URL`.
+- Khi chạy `npm run dev`, Vite sẽ proxy `/api` sang backend theo `VITE_API_PROXY_TARGET`.
 - Request tự gắn `Authorization: Bearer <token>`.
 - `401` sẽ tự clear session và điều hướng về `/login`.
 - Mã lỗi BE (`INSUFFICIENT_STOCK`, `PERMISSION_DENIED`, ...) được map sang thông báo tiếng Việt.
