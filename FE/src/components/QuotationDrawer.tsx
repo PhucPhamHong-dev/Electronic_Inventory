@@ -485,10 +485,19 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
           optionFilterProp="searchText"
           optionRender={(option) => {
             const data = option.data as ProductSelectOption;
+            const isStockRisk = data.stockQuantity < 0;
             return (
-              <div className="sales-voucher-product-option">
+              <div
+                className={`sales-voucher-product-option${isStockRisk ? " sales-voucher-product-option-danger" : ""}`}
+                style={isStockRisk ? { background: "#fff1f0", color: "#cf1322", margin: "-5px -12px", padding: "5px 12px" } : undefined}
+              >
                 <span>{`${data.skuCode} - ${data.productName}`}</span>
-                <span className="sales-voucher-product-stock">{`SL: ${formatNumber(data.stockQuantity)}`}</span>
+                <span
+                  className={`sales-voucher-product-stock${isStockRisk ? " sales-voucher-product-stock-danger" : ""}`}
+                  style={isStockRisk ? { color: "#cf1322", fontWeight: 800 } : undefined}
+                >
+                  {`SL: ${formatNumber(data.stockQuantity)}`}
+                </span>
               </div>
             );
           }}

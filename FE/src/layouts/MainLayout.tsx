@@ -166,7 +166,7 @@ export function MainLayout() {
         >
           <Breadcrumb items={currentBread.map((label) => ({ title: label }))} />
           <Space size={16}>
-            <Typography.Text type="secondary">Ky ke toan: Thang 04/2026</Typography.Text>
+            {/* <Typography.Text type="secondary">Ky ke toan: Thang 04/2026</Typography.Text> */}
             <BellOutlined style={{ fontSize: 16 }} />
             <Space size={8}>
               <Avatar size="small" icon={<UserOutlined />} />

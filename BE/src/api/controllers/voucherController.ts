@@ -488,4 +488,14 @@ export class VoucherController {
       next(error);
     }
   }
+
+  static async exportDeliveryNoteExcel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      assertContext(req);
+      assertUser(req);
+      await voucherService.streamDeliveryNoteExcel(req.params.id, res);
+    } catch (error) {
+      next(error);
+    }
+  }
 }

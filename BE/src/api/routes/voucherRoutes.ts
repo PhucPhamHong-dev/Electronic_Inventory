@@ -20,3 +20,4 @@ voucherRouter.post("/:id/unpost", asyncHandler(VoucherController.unpostVoucher))
 voucherRouter.post("/:id/duplicate", asyncHandler(VoucherController.duplicateVoucher));
 voucherRouter.delete("/:id", asyncHandler(VoucherController.deleteVoucher));
 voucherRouter.get("/:id/pdf", asyncHandler(VoucherController.exportVoucherPdf));
+voucherRouter.get("/:id/excel", asyncHandler(VoucherController.exportDeliveryNoteExcel));

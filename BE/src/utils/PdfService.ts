@@ -252,7 +252,23 @@ function computeInvoice(voucher: VoucherPdfVoucher): InvoiceCalculatedData {
   return { rows, totalBeforeTax, totalTaxAmount, totalVoucherAmount };
 }
 
-function drawHeader(doc: PDFDocument, voucher: VoucherPdfVoucher, title: string): void {
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function formatDeliveryVoucherNo(voucherNo: string): string {
+  const trimmed = voucherNo.trim();
+  if (!trimmed || /^GH-/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  const compactSource = trimmed.replace(/[^a-z0-9]/gi, "");
+  if (UUID_PATTERN.test(trimmed) || trimmed.length > 18) {
+    return `GH-${compactSource.slice(0, 3).toUpperCase()}`;
+  }
+
+  return trimmed;
+}
+
+function drawHeader(doc: PDFDocument, voucher: VoucherPdfVoucher, title: string, displayVoucherNo = voucher.voucherNo): void {
   const date = asDate(voucher.voucherDate);
   const day = String(date.getDate()).padStart(2, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -268,7 +284,7 @@ function drawHeader(doc: PDFDocument, voucher: VoucherPdfVoucher, title: string)
     align: "center"
   });
 
-  doc.font("Bold").fontSize(12).text(`Số: ${voucher.voucherNo}`, PAGE_MARGIN, 88, {
+  doc.font("Bold").fontSize(12).text(`Số: ${displayVoucherNo}`, PAGE_MARGIN, 88, {
     width: CONTENT_WIDTH,
     align: "center"
   });
@@ -562,7 +578,7 @@ export class PdfService {
     const doc = createDocument(fonts);
     doc.pipe(res);
 
-    drawHeader(doc, voucher, "PHIẾU GỬI HÀNG");
+    drawHeader(doc, voucher, "PHIẾU GỬI HÀNG", formatDeliveryVoucherNo(voucher.voucherNo));
     const tableTop = drawPartnerInfo(doc, voucher, "Tên khách hàng");
     await drawItemsTable(doc, calculated.rows, tableTop);
     ensurePageSpace(doc, 130);

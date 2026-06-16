@@ -139,7 +139,11 @@ export function ProductsPage() {
       key: "stockQuantity",
       align: "right",
       width: 130,
-      render: (value: number) => <span style={{ fontWeight: 500 }}>{formatNumber(value)}</span>
+      render: (value: number) => (
+        <span className={value < 0 ? "stock-negative-text" : undefined} style={{ fontWeight: 500 }}>
+          {formatNumber(value)}
+        </span>
+      )
     },
     {
       title: "Chức năng",
@@ -192,7 +196,9 @@ export function ProductsPage() {
           <div className="partner-summary-label">Số mã hàng đang theo dõi</div>
         </div>
         <div className="partner-summary-card">
-          <div className="partner-summary-value">{formatNumber(summary.totalStock)}</div>
+          <div className={`partner-summary-value${summary.totalStock < 0 ? " stock-negative-text" : ""}`}>
+            {formatNumber(summary.totalStock)}
+          </div>
           <div className="partner-summary-label">Tổng tồn kho hiện tại</div>
         </div>
         <div className="partner-summary-card partner-summary-card-success">

@@ -16,7 +16,7 @@ import {
   fetchQuotationById,
   fetchQuotations
 } from "../services/quotation.api";
-import { deleteVoucher, downloadVoucherPdf, duplicateVoucher, fetchVoucherById, fetchVouchers, payVoucher, unpostVoucher } from "../services/voucher.api";
+import { deleteVoucher, downloadDeliveryNoteExcel, downloadVoucherPdf, duplicateVoucher, fetchVoucherById, fetchVouchers, payVoucher, unpostVoucher } from "../services/voucher.api";
 import type {
   QuotationDetail,
   QuotationSummary,
@@ -347,6 +347,10 @@ export function SalesDashboardPage() {
         void downloadVoucherPdf(record.id, record.voucherNo ?? record.id, "SALES", "DELIVERY_NOTE");
         return;
       }
+      if (action === "download-delivery-excel") {
+        void downloadDeliveryNoteExcel(record.id, record.voucherNo ?? record.id);
+        return;
+      }
       if (action === "delete") {
         void deleteVoucherMutation.mutateAsync(record.id);
       }
@@ -398,6 +402,7 @@ export function SalesDashboardPage() {
     items.push({ key: "duplicate", label: "Nh\u00e2n b\u1ea3n" });
     items.push({ key: "download-handover", label: "T\u1ea3i phi\u1ebfu b\u00e0n giao" });
     items.push({ key: "download-delivery", label: "T\u1ea3i phi\u1ebfu giao h\u00e0ng" });
+    items.push({ key: "download-delivery-excel", label: "T\u1ea3i phi\u1ebfu giao h\u00e0ng Excel" });
     if (record.status === "DRAFT") {
       items.push({ key: "delete", label: "X\u00f3a" });
     }

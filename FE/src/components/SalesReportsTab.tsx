@@ -31,7 +31,7 @@ import {
 } from "antd";
 import type { MenuProps, TableColumnsType } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -48,6 +48,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import * as XLSX from "xlsx-js-style";
+import { ArLedgerPanel } from "./ArLedgerPanel";
 import { ImportWizardModal } from "../components/ImportWizardModal";
 import { commitImportData, validateImportData, type ImportDomain } from "../services/import.api";
 import { fetchPartners, fetchProducts } from "../services/masterData.api";
@@ -137,6 +138,13 @@ type ReportImportConfig = {
     renderValue?: (value: ReportImportMappedData[keyof ReportImportMappedData]) => string;
   }>;
 };
+
+interface SalesReportsTabProps {
+  initialReportType?: DynamicReportType;
+  visibleReportTypes?: DynamicReportType[];
+  catalogTitle?: string;
+  hideCatalog?: boolean;
+}
 
 const REPORT_IMPORT_CONFIGS: Record<ReportImportDomain, ReportImportConfig> = {
   SALES_DETAILS: {
@@ -478,9 +486,9 @@ function resolveReportLabel(reportType: DynamicReportType): string {
     return "Sổ chi tiết mua hàng";
   }
   if (reportType === "TONG_HOP_CONG_NO_NCC") {
-    return "Tổng hợp công nợ phải trả nhà cung cấp";
+    return "Sổ chi tiết công nợ nhà cung cấp";
   }
-  return "Tổng hợp công nợ phải thu";
+  return "Sổ chi tiết công nợ khách hàng";
 }
 
 function resolveVoucherType(reportType: DynamicReportType): VoucherType {
@@ -498,9 +506,9 @@ function resolveReportLabelForUI(reportType: DynamicReportType): string {
     return "Sổ chi tiết vật tư hàng hóa";
   }
   if (reportType === "TONG_HOP_CONG_NO_NCC") {
-    return "Tổng hợp công nợ phải trả nhà cung cấp";
+    return "Sổ chi tiết công nợ nhà cung cấp";
   }
-  return "Tổng hợp công nợ phải thu";
+  return "Sổ chi tiết công nợ khách hàng";
 }
 
 function triggerPrint(pageSize: ReportPageSize): void {
@@ -569,9 +577,15 @@ function SortableColumnRow({ column, onToggleVisible, onRename, onWidthChange }:
   );
 }
 
-export function SalesReportsTab() {
+export function SalesReportsTab(props: SalesReportsTabProps = {}) {
+  const {
+    initialReportType = "SO_CHI_TIET_BAN_HANG",
+    visibleReportTypes,
+    catalogTitle = "Báo cáo chi tiết mua bán hàng",
+    hideCatalog = false
+  } = props;
   const [parameterForm] = Form.useForm<ParameterFormValues>();
-  const [reportType, setReportType] = useState<DynamicReportType>("SO_CHI_TIET_BAN_HANG");
+  const [reportType, setReportType] = useState<DynamicReportType>(initialReportType);
   const [parameterOpen, setParameterOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [partnerKeyword, setPartnerKeyword] = useState("");
@@ -587,7 +601,7 @@ export function SalesReportsTab() {
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [activeTemplateName, setActiveTemplateName] = useState("Mẫu chuẩn");
   const [pageSize, setPageSize] = useState<ReportPageSize>("A4_PORTRAIT");
-  const [columnConfigs, setColumnConfigs] = useState<ColumnConfigDraft[]>(buildDefaultColumns("SO_CHI_TIET_BAN_HANG"));
+  const [columnConfigs, setColumnConfigs] = useState<ColumnConfigDraft[]>(buildDefaultColumns(initialReportType));
   const [groupByPartner, setGroupByPartner] = useState(true);
   const [templateNameDraft, setTemplateNameDraft] = useState("Mẫu chuẩn");
   const [templateColumnsDraft, setTemplateColumnsDraft] = useState<ColumnConfigDraft[]>([]);
@@ -598,6 +612,15 @@ export function SalesReportsTab() {
   const [openImportModal, setOpenImportModal] = useState(false);
   const [importDomain, setImportDomain] = useState<ReportImportDomain>("SALES_DETAILS");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const isReportTypeVisible = useCallback(
+    (type: DynamicReportType) => {
+      if (visibleReportTypes) {
+        return visibleReportTypes.includes(type);
+      }
+      return type !== "TONG_HOP_CONG_NO_NCC";
+    },
+    [visibleReportTypes]
+  );
 
   const partnerGroup =
     reportType === "SO_CHI_TIET_MUA_HANG" || reportType === "TONG_HOP_CONG_NO_NCC" ? "SUPPLIER" : "CUSTOMER";
@@ -693,6 +716,11 @@ export function SalesReportsTab() {
   }, [parameterForm, reportType]);
 
   useEffect(() => {
+    if (DEBT_REPORT_TYPES.includes(reportType)) {
+      setAutoQueryPending(false);
+      return;
+    }
+
     if (filtersQuery.isFetching) {
       return;
     }
@@ -1233,7 +1261,11 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
       title: "Tồn SL",
       width: 120,
       align: "right",
-      render: (value: number) => <Typography.Text strong>{formatNumber(value)}</Typography.Text>
+      render: (value: number) => (
+        <Typography.Text className={value < 0 ? "stock-negative-text" : undefined} strong>
+          {formatNumber(value)}
+        </Typography.Text>
+      )
     },
     valueAfter: {
       key: "valueAfter",
@@ -2238,46 +2270,84 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
 
   return (
     <div className="sales-report-shell">
+      {hideCatalog ? null : (
       <div className="sales-report-catalog">
         <div className="sales-report-group">
-          <Typography.Text strong>Báo cáo chi tiết mua bán hàng</Typography.Text>
+          <Typography.Text strong>{catalogTitle}</Typography.Text>
           <div className="sales-report-links">
-            <button
-              type="button"
-              className={`sales-report-link ${reportType === "SO_CHI_TIET_BAN_HANG" ? "sales-report-link-active" : ""}`}
-              onClick={() => {
-                setReportType("SO_CHI_TIET_BAN_HANG");
-              }}
-            >
-              Sổ chi tiết bán hàng
-            </button>
-            <button
-              type="button"
-              className={`sales-report-link ${reportType === "SO_CHI_TIET_MUA_HANG" ? "sales-report-link-active" : ""}`}
-              onClick={() => {
-                setReportType("SO_CHI_TIET_MUA_HANG");
-              }}
-            >
-              Sổ chi tiết mua hàng
-            </button>
+            {isReportTypeVisible("SO_CHI_TIET_BAN_HANG") ? (
+              <button
+                type="button"
+                className={`sales-report-link ${reportType === "SO_CHI_TIET_BAN_HANG" ? "sales-report-link-active" : ""}`}
+                onClick={() => {
+                  setReportType("SO_CHI_TIET_BAN_HANG");
+                }}
+              >
+                Sổ chi tiết bán hàng
+              </button>
+            ) : null}
+            {isReportTypeVisible("SO_CHI_TIET_MUA_HANG") ? (
+              <button
+                type="button"
+                className={`sales-report-link ${reportType === "SO_CHI_TIET_MUA_HANG" ? "sales-report-link-active" : ""}`}
+                onClick={() => {
+                  setReportType("SO_CHI_TIET_MUA_HANG");
+                }}
+              >
+                Sổ chi tiết mua hàng
+              </button>
+            ) : null}
+            {isReportTypeVisible("TONG_HOP_CONG_NO") ? (
+              <button
+                type="button"
+                className={`sales-report-link ${reportType === "TONG_HOP_CONG_NO" ? "sales-report-link-active" : ""}`}
+                onClick={() => {
+                  setReportType("TONG_HOP_CONG_NO");
+                }}
+              >
+                Sổ chi tiết công nợ khách hàng
+              </button>
+            ) : null}
+            {isReportTypeVisible("TONG_HOP_CONG_NO_NCC") ? (
+              <button
+                type="button"
+                className={`sales-report-link ${reportType === "TONG_HOP_CONG_NO_NCC" ? "sales-report-link-active" : ""}`}
+                onClick={() => {
+                  setReportType("TONG_HOP_CONG_NO_NCC");
+                }}
+              >
+                Sổ chi tiết công nợ nhà cung cấp
+              </button>
+            ) : null}
           </div>
         </div>
-        <div className="sales-report-group">
-          <Typography.Text strong>Báo cáo vật tư hàng hóa</Typography.Text>
-          <div className="sales-report-links">
-            <button
-              type="button"
-              className={`sales-report-link ${reportType === MATERIAL_REPORT_TYPE ? "sales-report-link-active" : ""}`}
-              onClick={() => {
-                setReportType(MATERIAL_REPORT_TYPE);
-              }}
-            >
-              Sổ chi tiết vật tư hàng hóa
-            </button>
+        {isReportTypeVisible(MATERIAL_REPORT_TYPE) ? (
+          <div className="sales-report-group">
+            <Typography.Text strong>Báo cáo vật tư hàng hóa</Typography.Text>
+            <div className="sales-report-links">
+              <button
+                type="button"
+                className={`sales-report-link ${reportType === MATERIAL_REPORT_TYPE ? "sales-report-link-active" : ""}`}
+                onClick={() => {
+                  setReportType(MATERIAL_REPORT_TYPE);
+                }}
+              >
+                Sổ chi tiết vật tư hàng hóa
+              </button>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
+      )}
 
+      {DEBT_REPORT_TYPES.includes(reportType) ? (
+        <div className="sales-report-viewer sales-report-viewer-has-data">
+          <ArLedgerPanel
+            initialPartnerType={reportType === "TONG_HOP_CONG_NO_NCC" ? "SUPPLIER" : "CUSTOMER"}
+            allowedPartnerTypes={[reportType === "TONG_HOP_CONG_NO_NCC" ? "SUPPLIER" : "CUSTOMER"]}
+          />
+        </div>
+      ) : (
       <div className={`sales-report-viewer ${reportData ? "sales-report-viewer-has-data" : ""}`}>
         <div className="sales-report-viewer-header">
           <div className="sales-report-header-title">
@@ -2464,7 +2534,12 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
                     return (
                       <Table.Summary.Row>
                         <Table.Summary.Cell index={0} colSpan={columnCount} align="right">
-                          <Typography.Text strong>{`Tồn cuối: ${formatCurrency(reportData.summary.totalValueOnHand)}`}</Typography.Text>
+                          <Typography.Text
+                            className={reportData.summary.totalQuantityOnHand < 0 ? "stock-negative-text" : undefined}
+                            strong
+                          >
+                            {`Tồn cuối: ${formatCurrency(reportData.summary.totalValueOnHand)}`}
+                          </Typography.Text>
                         </Table.Summary.Cell>
                       </Table.Summary.Row>
                     );
@@ -2487,7 +2562,12 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
                         <Typography.Text>{formatCurrency(reportData.summary.totalValueOut)}</Typography.Text>
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={5} align="right">
-                        <Typography.Text strong>{formatNumber(reportData.summary.totalQuantityOnHand)}</Typography.Text>
+                        <Typography.Text
+                          className={reportData.summary.totalQuantityOnHand < 0 ? "stock-negative-text" : undefined}
+                          strong
+                        >
+                          {formatNumber(reportData.summary.totalQuantityOnHand)}
+                        </Typography.Text>
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={6} align="right">
                         <Typography.Text strong>{formatCurrency(reportData.summary.totalValueOnHand)}</Typography.Text>
@@ -2560,6 +2640,7 @@ const paymentStatusLabelMap: Record<ReportDetailRow["paymentStatus"], string> = 
           </div>
         )}
       </div>
+      )}
 
       <Modal
         open={parameterOpen}

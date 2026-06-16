@@ -31,6 +31,7 @@ import { fetchQuotationById } from "../services/quotation.api";
 import {
   createPurchaseVoucher,
   createSalesVoucher,
+  downloadDeliveryNoteExcel,
   downloadVoucherPdf,
   fetchCustomerProductLastPrice,
   fetchVoucherById,
@@ -816,6 +817,16 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     await downloadVoucherPdf(targetId, voucherNo, isPurchaseMode ? "PURCHASE" : "SALES", template);
   };
 
+  const handleDownloadExcel = async () => {
+    const targetId = savedVoucher?.voucherId ?? voucherId ?? null;
+    const voucherNo = form.getFieldValue("voucherNo") ?? savedVoucher?.voucherNo ?? targetId ?? "";
+    if (!targetId) {
+      message.warning("Vui lòng lưu chứng từ trước khi tải Excel.");
+      return;
+    }
+    await downloadDeliveryNoteExcel(targetId, voucherNo);
+  };
+
   const handleSaveAndPrint = async () => {
     if (actionLoading) return;
     if (shouldBlockSaveForStock) {
@@ -870,12 +881,12 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       : undefined;
 
   const columns: ColumnsType<SalesRow> = [
-      { title: "#", key: "stt", width: 40, align: "center", render: (_value, _record, index) => index + 1 },
+      { title: "#", key: "stt", width: 44, align: "center", render: (_value, _record, index) => index + 1 },
       {
         title: "Mã hàng",
         dataIndex: "productId",
         key: "productId",
-        width: 140,
+        width: 150,
       render: (_value, record) => {
         if (record.rowType === "NOTE") return <Typography.Text type="secondary">Ghi chú</Typography.Text>;
         return (
@@ -888,7 +899,21 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
             optionFilterProp="searchText"
             optionRender={(option) => {
               const data = option.data as ProductSelectOption;
-              return <div className="sales-voucher-product-option"><span>{`${data.skuCode} - ${data.productName}`}</span><span className="sales-voucher-product-stock">{`SL: ${formatNumber(data.stockQuantity)}`}</span></div>;
+              const isStockRisk = !isPurchaseMode && data.stockQuantity < 0;
+              return (
+                <div
+                  className={`sales-voucher-product-option${isStockRisk ? " sales-voucher-product-option-danger" : ""}`}
+                  style={isStockRisk ? { background: "#fff1f0", color: "#cf1322", margin: "-5px -12px", padding: "5px 12px" } : undefined}
+                >
+                  <span>{`${data.skuCode} - ${data.productName}`}</span>
+                  <span
+                    className={`sales-voucher-product-stock${isStockRisk ? " sales-voucher-product-stock-danger" : ""}`}
+                    style={isStockRisk ? { color: "#cf1322", fontWeight: 800 } : undefined}
+                  >
+                    {`SL: ${formatNumber(data.stockQuantity)}`}
+                  </span>
+                </div>
+              );
             }}
             filterOption={(input, option) => ((option as ProductSelectOption | undefined)?.searchText ?? "").includes(input.toLowerCase())}
             onSearch={(keyword) => {
@@ -910,12 +935,12 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       ellipsis: true,
       render: (value: string | undefined, record) => record.rowType === "NOTE" ? <Input value={record.noteText} placeholder="Nhập ghi chú cho chứng từ" onChange={(event) => updateRow(record.key, { noteText: event.target.value })} /> : value || productMap.get(record.productId ?? "")?.name || "-"
     },
-      { title: "ĐVT", dataIndex: "unitName", key: "unitName", width: 60, align: "center", render: (value: string, record) => (record.rowType === "NOTE" ? "-" : value || "-") },
+      { title: "ĐVT", dataIndex: "unitName", key: "unitName", width: 64, align: "center", responsive: ["md"], render: (value: string, record) => (record.rowType === "NOTE" ? "-" : value || "-") },
       {
         title: "Số lượng",
         dataIndex: "quantity",
         key: "quantity",
-        width: 96,
+        width: 108,
       align: "right",
       render: (value: number, record, rowIndex) => {
         if (record.rowType === "NOTE") {
@@ -943,7 +968,8 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         title: "Đơn giá",
         dataIndex: "unitPrice",
         key: "unitPrice",
-        width: 112,
+        width: 126,
+      responsive: ["sm"],
       align: "right",
       render: (value: number, record, rowIndex) =>
         record.rowType === "NOTE"
@@ -957,7 +983,8 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         title: "% Chiết khấu",
         dataIndex: "discountRate",
         key: "discountRate",
-        width: 96,
+        width: 104,
+      responsive: ["xl"],
       align: "right",
       render: (value: number, record, rowIndex) =>
         record.rowType === "NOTE"
@@ -975,7 +1002,8 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       {
         title: "Đơn giá sau CK",
         key: "unitPriceAfterDiscount",
-        width: 112,
+        width: 132,
+      responsive: ["xl"],
       align: "right",
       render: (_value, record) => {
         if (record.rowType === "NOTE") {
@@ -989,7 +1017,8 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         title: "% Thuế GTGT",
         dataIndex: "taxRate",
         key: "taxRate",
-        width: 96,
+        width: 104,
+      responsive: ["lg"],
       align: "right",
       render: (value: number, record, rowIndex) =>
         record.rowType === "NOTE"
@@ -1008,7 +1037,8 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         title: "Thành tiền",
         dataIndex: "lineTotal",
         key: "lineTotal",
-        width: 128,
+        width: 140,
+      responsive: ["sm"],
       align: "right",
       render: (value: number, record) => record.rowType === "NOTE" ? "-" : <Typography.Text strong>{formatCurrency(value)}</Typography.Text>
     },
@@ -1054,6 +1084,14 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
                   </Button>
                 </Dropdown>
               )}
+              {!isPurchaseMode ? (
+                <Button
+                  className="sales-voucher-footer-button sales-voucher-footer-button-secondary"
+                  onClick={() => void handleDownloadExcel()}
+                >
+                  Tải Excel
+                </Button>
+              ) : null}
               <Button
                 className="sales-voucher-footer-button sales-voucher-footer-button-primary"
                 loading={actionLoading}
@@ -1093,7 +1131,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
               </div>
             </div>
           </Form>
-          <div className="sales-voucher-grid-section"><Table<SalesRow> rowKey="key" size="small" bordered className="voucher-detail-table sales-voucher-detail-table sales-voucher-detail-table-misa" pagination={false} columns={columns} dataSource={rows} scroll={{ y: 320 }} /></div>
+          <div className="sales-voucher-grid-section"><Table<SalesRow> rowKey="key" size="small" bordered tableLayout="fixed" className="voucher-detail-table sales-voucher-detail-table sales-voucher-detail-table-misa" pagination={false} columns={columns} dataSource={rows} scroll={{ y: 320 }} /></div>
           <div className="sales-voucher-table-footer sales-voucher-table-footer-misa"><div className="sales-voucher-footer-actions-left"><Typography.Text type="secondary">{`Tổng số: ${rows.length} bản ghi`}</Typography.Text><Space wrap><Button icon={<PlusOutlined />} onClick={addRow}>Thêm dòng</Button><Button onClick={addNoteRow}>Thêm ghi chú</Button><Button danger onClick={clearRows}>Xóa hết dòng</Button></Space></div><div className="voucher-summary-block sales-voucher-summary-block"><Row justify="space-between" className="voucher-summary-row"><Typography.Text>Tổng tiền hàng</Typography.Text><Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalAmount)}</Typography.Text></Row><Row justify="space-between" className="voucher-summary-row"><Typography.Text>Thuế GTGT</Typography.Text><Typography.Text className="voucher-summary-value">{formatCurrency(totals.totalTaxAmount)}</Typography.Text></Row><Row justify="space-between" className="voucher-summary-row voucher-summary-row-total"><Typography.Text strong>Tổng tiền thanh toán</Typography.Text><Typography.Text strong className="voucher-summary-value voucher-summary-value-total">{formatCurrency(totals.totalNetAmount)}</Typography.Text></Row></div></div>
         </div>
       </Drawer>

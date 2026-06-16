@@ -482,10 +482,17 @@ export function VoucherFormPage() {
           options={productOptions}
           optionRender={(option) => {
             const data = option.data as ProductSelectOption;
+            const isStockRisk = voucherType === "SALES" && data.stockQuantity < 0;
             return (
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div
+                className={`sales-voucher-product-option${isStockRisk ? " sales-voucher-product-option-danger" : ""}`}
+                style={isStockRisk ? { background: "#fff1f0", color: "#cf1322", margin: "-5px -12px", padding: "5px 12px" } : undefined}
+              >
                 <span>{`${data.skuCode} - ${data.productName}`}</span>
-                <span style={{ color: "#8c8c8c", fontSize: 12, fontWeight: 500, whiteSpace: "nowrap" }}>
+                <span
+                  className={`sales-voucher-product-stock${isStockRisk ? " sales-voucher-product-stock-danger" : ""}`}
+                  style={isStockRisk ? { color: "#cf1322", fontWeight: 800 } : undefined}
+                >
                   {`SL: ${formatNumber(data.stockQuantity)}`}
                 </span>
               </div>

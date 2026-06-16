@@ -182,6 +182,18 @@ function resolveVoucherPdfFileName(voucherNo: string, type: VoucherType): string
 
 type VoucherPdfTemplate = "DELIVERY_NOTE" | "HANDOVER_RECORD";
 
+function formatDeliveryVoucherNo(voucherNo: string): string {
+  const trimmed = voucherNo.trim();
+  if (!trimmed || /^GH-/i.test(trimmed)) {
+    return trimmed;
+  }
+  const compactSource = trimmed.replace(/[^a-z0-9]/gi, "");
+  if (trimmed.length > 18) {
+    return `GH-${compactSource.slice(0, 3).toUpperCase()}`;
+  }
+  return trimmed;
+}
+
 export async function downloadVoucherPdf(
   voucherId: string,
   voucherNo: string,
@@ -193,7 +205,9 @@ export async function downloadVoucherPdf(
     responseType: "blob"
   });
 
-  const safeVoucherNo = sanitizeVoucherNo(voucherNo || voucherId);
+  const safeVoucherNo = sanitizeVoucherNo(
+    type === "SALES" && template === "DELIVERY_NOTE" ? formatDeliveryVoucherNo(voucherNo || voucherId) : voucherNo || voucherId
+  );
   const fileName =
     type === "SALES" && template === "HANDOVER_RECORD"
       ? `Bien_Ban_Ban_Giao_${safeVoucherNo}.pdf`
@@ -206,5 +220,24 @@ export async function downloadVoucherPdf(
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
+  window.URL.revokeObjectURL(url);
+}
+
+export async function downloadDeliveryNoteExcel(voucherId: string, voucherNo: string): Promise<void> {
+  const response = await axiosClient.get<Blob>(API_ENDPOINTS.VOUCHER_EXCEL(voucherId), {
+    responseType: "blob"
+  });
+
+  const safeVoucherNo = sanitizeVoucherNo(formatDeliveryVoucherNo(voucherNo || voucherId));
+  const url = window.URL.createObjectURL(
+    new Blob([response.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+  );
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `Phieu_Gui_Hang_${safeVoucherNo}.xlsx`;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
   window.URL.revokeObjectURL(url);
 }

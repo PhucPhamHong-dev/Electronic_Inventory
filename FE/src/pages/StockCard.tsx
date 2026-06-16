@@ -123,7 +123,11 @@ export function StockCardPage() {
         key: "quantityAfter",
         align: "right",
         width: 140,
-        render: (value: number) => <Typography.Text strong>{formatNumber(value)}</Typography.Text>
+        render: (value: number) => (
+          <Typography.Text className={value < 0 ? "stock-negative-text" : undefined} strong>
+            {formatNumber(value)}
+          </Typography.Text>
+        )
       }
     ],
     []
@@ -188,4 +192,3 @@ export function StockCardPage() {
     </div>
   );
 }
-

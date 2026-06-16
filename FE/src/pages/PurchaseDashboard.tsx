@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx-js-style";
 import { ImportWizardModal } from "../components/ImportWizardModal";
 import { commitImportData, validateImportData } from "../services/import.api";
+import { SalesReportsTab } from "../components/SalesReportsTab";
 import { SalesVoucherDrawer } from "../components/SalesVoucherDrawer";
 import { deleteVoucher, downloadVoucherPdf, duplicateVoucher, fetchVoucherById, fetchVouchers, payVoucher, unpostVoucher } from "../services/voucher.api";
 import type { VoucherDetail, VoucherHistoryItem } from "../types/voucher";
@@ -24,6 +25,13 @@ interface PurchaseListImportMappedData extends Record<string, string | number | 
   totalNetAmount: number;
   paymentStatus: "UNPAID" | "PARTIAL" | "PAID";
 }
+
+type PurchaseWorkflowTabKey = "PURCHASE" | "REPORTS";
+
+const purchaseWorkflowTabs: Array<{ key: PurchaseWorkflowTabKey; label: string }> = [
+  { key: "PURCHASE", label: "Mua hàng" },
+  { key: "REPORTS", label: "Báo cáo" }
+];
 
 const paymentStatusMeta = {
   UNPAID: { label: "Chưa thanh toán", color: "red" },
@@ -50,6 +58,7 @@ function getYearToDateRange(): [Dayjs, Dayjs] {
 }
 
 export function PurchaseDashboardPage() {
+  const [activeWorkflowTab, setActiveWorkflowTab] = useState<PurchaseWorkflowTabKey>("PURCHASE");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
@@ -486,6 +495,29 @@ export function PurchaseDashboardPage() {
         Mua hàng
       </Typography.Title>
 
+      <div className="sales-workflow-bar">
+        <div className="sales-workflow-scroll">
+          {purchaseWorkflowTabs.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`sales-workflow-tab ${item.key === activeWorkflowTab ? "sales-workflow-tab-active" : ""}`}
+              onClick={() => setActiveWorkflowTab(item.key)}
+            >
+              <span className="sales-workflow-label">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeWorkflowTab === "REPORTS" ? (
+        <SalesReportsTab
+          initialReportType="TONG_HOP_CONG_NO_NCC"
+          visibleReportTypes={["TONG_HOP_CONG_NO_NCC"]}
+          catalogTitle="Báo cáo mua hàng"
+          hideCatalog
+        />
+      ) : (
       <div className="sales-split-view">
         <div className="sales-master-pane">
           <Space style={{ marginBottom: 12, width: "100%", justifyContent: "space-between" }} wrap>
@@ -594,6 +626,7 @@ export function PurchaseDashboardPage() {
           />
         </div>
       </div>
+      )}
 
       <SalesVoucherDrawer
         open={drawerOpen}

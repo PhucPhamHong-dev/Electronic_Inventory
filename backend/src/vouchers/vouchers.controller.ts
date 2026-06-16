@@ -381,6 +381,13 @@ export class VouchersController {
     const payload = exportPdfQuerySchema.parse(query);
     return this.vouchersService.streamVoucherPdf(voucherId, res, payload.template);
   }
+
+  @Get(":id/excel")
+  async deliveryNoteExcel(@Param("id") voucherId: string, @Req() req: Request, @Res() res: Response) {
+    assertContext(req);
+    assertUser(req);
+    return this.vouchersService.streamDeliveryNoteExcel(voucherId, res);
+  }
 }
 
 @Controller()

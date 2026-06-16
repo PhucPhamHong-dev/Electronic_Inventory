@@ -675,6 +675,11 @@ body,
   overflow-x: hidden;
 }
 
+.sales-voucher-detail-table .ant-table-content,
+.sales-voucher-detail-table .ant-table-body {
+  overflow-x: hidden !important;
+}
+
 .sales-voucher-detail-table .ant-table-thead > tr > th {
   background: #cfd8ff !important;
   color: #1f1f1f;
@@ -708,6 +713,11 @@ body,
   color: #cf1322;
 }
 
+.stock-negative-text {
+  color: #cf1322 !important;
+  font-weight: 700;
+}
+
 .sales-voucher-detail-table .sales-voucher-number-editor .ant-input-number {
   width: 100%;
 }
@@ -722,11 +732,25 @@ body,
   gap: 12px;
 }
 
+.sales-voucher-product-option-danger {
+  color: #cf1322;
+}
+
+.ant-select-item-option-active .sales-voucher-product-option-danger,
+.ant-select-item-option-selected .sales-voucher-product-option-danger {
+  background: #fff1f0 !important;
+}
+
 .sales-voucher-product-stock {
   color: #6b7280;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+.sales-voucher-product-stock-danger {
+  color: #cf1322;
+  font-weight: 700;
 }
 
 .sales-voucher-table-footer {

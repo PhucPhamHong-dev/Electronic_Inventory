@@ -10,6 +10,7 @@ import {
   VoucherStatus,
   VoucherType
 } from "@prisma/client";
+import ExcelJS from "exceljs";
 import type { Response } from "express";
 import { prisma } from "../config/db";
 import type {
@@ -36,6 +37,29 @@ import { PdfService } from "../utils/PdfService";
 import { computeEditedFlag } from "../utils/voucher";
 
 type Tx = Prisma.TransactionClient;
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function formatDeliveryVoucherNo(voucherNo: string): string {
+  const trimmed = voucherNo.trim();
+  if (!trimmed || /^GH-/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  const compactSource = trimmed.replace(/[^a-z0-9]/gi, "");
+  if (UUID_PATTERN.test(trimmed) || trimmed.length > 18) {
+    return `GH-${compactSource.slice(0, 3).toUpperCase()}`;
+  }
+
+  return trimmed;
+}
+
+function formatDateDdMmYyyy(value: Date): string {
+  const day = String(value.getDate()).padStart(2, "0");
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const year = value.getFullYear();
+  return `${day}/${month}/${year}`;
+}
 
 interface ServiceContext {
   traceId: string;
@@ -1435,8 +1459,9 @@ export class VoucherService {
         );
         return;
       }
+      const deliveryFilenameSafeVoucherNo = formatDeliveryVoucherNo(data.voucherNo).replace(/[\\/:*?"<>|]/g, "_");
       await this.pdfService.generateSalesPdf(voucherPayload, oldDebtAmount, res, {
-        filename: `Phieu_Gui_Hang_${filenameSafeVoucherNo}.pdf`
+        filename: `Phieu_Gui_Hang_${deliveryFilenameSafeVoucherNo}.pdf`
       });
       return;
     }
@@ -1447,6 +1472,212 @@ export class VoucherService {
       res,
       { filename: `Phieu_Nhap_Kho_${filenameSafeVoucherNo}.pdf` }
     );
+  }
+
+  async streamDeliveryNoteExcel(voucherId: string, res: Response): Promise<void> {
+    const data = await this.buildPdfData(voucherId);
+    if (data.voucherType !== "SALES") {
+      throw new AppError("Only SALES vouchers support delivery note Excel export", 400, "VALIDATION_ERROR");
+    }
+
+    const voucher = await this.db.voucher.findFirst({
+      where: { id: voucherId, deletedAt: null },
+      select: {
+        partnerId: true,
+        createdAt: true
+      }
+    });
+    if (!voucher) {
+      throw new AppError("Voucher not found", 404, "NOT_FOUND");
+    }
+
+    const oldDebtAmount = await this.getPartnerDebtBeforeVoucher(voucher.partnerId, voucher.createdAt);
+    const displayVoucherNo = formatDeliveryVoucherNo(data.voucherNo);
+    const filenameSafeVoucherNo = (displayVoucherNo || data.voucherId).replace(/[\\/:*?"<>|]/g, "_");
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Electronic Inventory";
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet("Phiếu gửi hàng", {
+      pageSetup: {
+        paperSize: 9,
+        orientation: "portrait",
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        margins: {
+          left: 0.35,
+          right: 0.35,
+          top: 0.45,
+          bottom: 0.45,
+          header: 0.2,
+          footer: 0.2
+        }
+      }
+    });
+
+    worksheet.columns = [
+      { key: "stt", width: 7 },
+      { key: "productName", width: 34 },
+      { key: "unit", width: 11 },
+      { key: "quantity", width: 13 },
+      { key: "unitPrice", width: 15 },
+      { key: "discountRate", width: 10 },
+      { key: "discountedUnitPrice", width: 16 },
+      { key: "lineTotal", width: 17 }
+    ];
+
+    const moneyFormat = "#,##0";
+    const quantityFormat = "#,##0.00";
+    const thinBorder: Partial<ExcelJS.Borders> = {
+      top: { style: "thin" },
+      left: { style: "thin" },
+      bottom: { style: "thin" },
+      right: { style: "thin" }
+    };
+
+    const setBorder = (rowNumber: number, fromCol = 1, toCol = 8) => {
+      for (let col = fromCol; col <= toCol; col += 1) {
+        worksheet.getCell(rowNumber, col).border = thinBorder;
+      }
+    };
+
+    worksheet.mergeCells("A1:H1");
+    worksheet.getCell("A1").value = "PHIẾU GỬI HÀNG";
+    worksheet.getCell("A1").font = { bold: true, size: 18 };
+    worksheet.getCell("A1").alignment = { horizontal: "center" };
+
+    worksheet.mergeCells("A2:H2");
+    worksheet.getCell("A2").value = `Ngày ${formatDateDdMmYyyy(data.voucherDate)}`;
+    worksheet.getCell("A2").font = { italic: true, size: 12 };
+    worksheet.getCell("A2").alignment = { horizontal: "center" };
+
+    worksheet.mergeCells("A3:H3");
+    worksheet.getCell("A3").value = `Số: ${displayVoucherNo}`;
+    worksheet.getCell("A3").font = { bold: true, size: 12 };
+    worksheet.getCell("A3").alignment = { horizontal: "center" };
+
+    worksheet.mergeCells("A5:E5");
+    worksheet.getCell("A5").value = `Tên khách hàng: ${data.partnerName ?? ""}`;
+    worksheet.getCell("A5").font = { bold: true };
+    worksheet.mergeCells("F5:H5");
+    worksheet.getCell("F5").value = `Điện thoại: ${data.partnerPhone ?? ""}`;
+    worksheet.getCell("F5").font = { bold: true };
+
+    worksheet.mergeCells("A6:H6");
+    worksheet.getCell("A6").value = `Địa chỉ: ${data.partnerAddress ?? ""}`;
+    worksheet.getCell("A6").font = { bold: true };
+
+    const headerRowNumber = 8;
+    const headerRow = worksheet.getRow(headerRowNumber);
+    headerRow.values = ["STT", "Tên hàng", "Đơn vị", "Số lượng", "Đơn giá", "CK (%)", "Đơn giá sau CK", "Thành tiền"];
+    headerRow.font = { bold: true };
+    headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    headerRow.height = 28;
+    setBorder(headerRowNumber);
+
+    let rowNumber = headerRowNumber + 1;
+    let totalBeforeTax = 0;
+    let totalTaxAmount = 0;
+    let totalVoucherAmount = 0;
+
+    data.items.forEach((item, index) => {
+      const quantity = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unitPrice) || 0;
+      const discountRate = Number(item.discountRate) || 0;
+      const discountedUnitPrice = unitPrice * (1 - discountRate / 100);
+      const lineBeforeTax = quantity * discountedUnitPrice;
+      const taxAmount = Number(item.taxAmount) || 0;
+      const lineTotal = lineBeforeTax + taxAmount;
+
+      totalBeforeTax += lineBeforeTax;
+      totalTaxAmount += taxAmount;
+      totalVoucherAmount += lineTotal;
+
+      const row = worksheet.getRow(rowNumber);
+      row.values = [
+        index + 1,
+        item.productName,
+        item.unitName ?? "",
+        quantity,
+        unitPrice,
+        discountRate,
+        discountedUnitPrice,
+        lineTotal
+      ];
+      row.alignment = { vertical: "top", wrapText: true };
+      row.getCell(1).alignment = { horizontal: "center", vertical: "top" };
+      row.getCell(3).alignment = { horizontal: "center", vertical: "top" };
+      row.getCell(4).numFmt = quantityFormat;
+      row.getCell(5).numFmt = moneyFormat;
+      row.getCell(6).numFmt = "0";
+      row.getCell(7).numFmt = moneyFormat;
+      row.getCell(8).numFmt = moneyFormat;
+      row.height = 36;
+      setBorder(rowNumber);
+      rowNumber += 1;
+    });
+
+    worksheet.mergeCells(rowNumber, 1, rowNumber + 2, 3);
+    worksheet.getCell(rowNumber, 1).value = "Công nợ cũ:";
+    worksheet.getCell(rowNumber, 1).font = { bold: true, underline: true };
+    worksheet.getCell(rowNumber, 1).alignment = { vertical: "middle" };
+    worksheet.getCell(rowNumber, 4).value = oldDebtAmount;
+    worksheet.getCell(rowNumber, 4).numFmt = moneyFormat;
+    worksheet.getCell(rowNumber, 4).font = { bold: true };
+    worksheet.getCell(rowNumber, 4).alignment = { horizontal: "right", vertical: "middle" };
+
+    const totalPayment = oldDebtAmount + totalVoucherAmount;
+    const summaryRows = [
+      ["Cộng tiền hàng (sau CK)", totalBeforeTax],
+      ["Tiền thuế GTGT:", totalTaxAmount],
+      ["Tổng tiền thanh toán:", totalPayment]
+    ] as const;
+
+    summaryRows.forEach(([label, value], offset) => {
+      const summaryRow = worksheet.getRow(rowNumber + offset);
+      summaryRow.getCell(5).value = label;
+      summaryRow.getCell(5).font = { bold: true };
+      summaryRow.getCell(8).value = value;
+      summaryRow.getCell(8).numFmt = moneyFormat;
+      summaryRow.getCell(8).font = { bold: true };
+      summaryRow.getCell(8).alignment = { horizontal: "right" };
+      setBorder(rowNumber + offset, 1, 8);
+    });
+    rowNumber += 4;
+
+    worksheet.mergeCells(rowNumber, 1, rowNumber, 8);
+    worksheet.getCell(rowNumber, 1).value = "Lưu ý : Kiểm tra hàng trước khi thanh toán . Hàng đặt không trả lại";
+    worksheet.getCell(rowNumber, 1).font = { bold: true };
+    rowNumber += 3;
+
+    worksheet.mergeCells(rowNumber, 1, rowNumber, 4);
+    worksheet.mergeCells(rowNumber, 5, rowNumber, 8);
+    worksheet.getCell(rowNumber, 1).value = "Người nhận hàng";
+    worksheet.getCell(rowNumber, 5).value = "Người giao hàng";
+    worksheet.getCell(rowNumber, 1).font = { bold: true };
+    worksheet.getCell(rowNumber, 5).font = { bold: true };
+    worksheet.getCell(rowNumber, 1).alignment = { horizontal: "center" };
+    worksheet.getCell(rowNumber, 5).alignment = { horizontal: "center" };
+    worksheet.mergeCells(rowNumber + 1, 1, rowNumber + 1, 4);
+    worksheet.mergeCells(rowNumber + 1, 5, rowNumber + 1, 8);
+    worksheet.getCell(rowNumber + 1, 1).value = "(Ký, họ tên)";
+    worksheet.getCell(rowNumber + 1, 5).value = "(Ký, họ tên)";
+    worksheet.getCell(rowNumber + 1, 1).font = { italic: true };
+    worksheet.getCell(rowNumber + 1, 5).font = { italic: true };
+    worksheet.getCell(rowNumber + 1, 1).alignment = { horizontal: "center" };
+    worksheet.getCell(rowNumber + 1, 5).alignment = { horizontal: "center" };
+
+    worksheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        cell.font = { name: "Times New Roman", ...(cell.font ?? {}) };
+      });
+    });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Phieu_Gui_Hang_${filenameSafeVoucherNo}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
   }
 
   async getVoucherDetail(voucherId: string) {

@@ -14,7 +14,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "db:check": "echo select now(); | prisma db execute --stdin --schema prisma/schema.prisma"
+    "db:check": "printf 'select now();\\n' | prisma db execute --stdin --schema prisma/schema.prisma"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

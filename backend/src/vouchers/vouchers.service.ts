@@ -77,4 +77,8 @@ export class VouchersServiceAdapter {
   streamVoucherPdf(voucherId: string, res: Response, template?: "DELIVERY_NOTE" | "HANDOVER_RECORD") {
     return this.service.streamVoucherPdf(voucherId, res as any, template);
   }
+
+  streamDeliveryNoteExcel(voucherId: string, res: Response) {
+    return this.service.streamDeliveryNoteExcel(voucherId, res as any);
+  }
 }

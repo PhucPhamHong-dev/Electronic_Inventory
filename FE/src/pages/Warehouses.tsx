@@ -71,7 +71,11 @@ function WarehouseProductsTable({
         key: "stockQuantity",
         align: "right",
         width: 140,
-        render: (value: number) => <span style={{ fontWeight: 500 }}>{formatNumber(value)}</span>
+        render: (value: number) => (
+          <span className={value < 0 ? "stock-negative-text" : undefined} style={{ fontWeight: 500 }}>
+            {formatNumber(value)}
+          </span>
+        )
       },
       {
         title: "Giá vốn",
