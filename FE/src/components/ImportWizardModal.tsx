@@ -1,5 +1,5 @@
 import { CloseOutlined, DownloadOutlined, InboxOutlined, QuestionCircleOutlined, SearchOutlined } from "@ant-design/icons";
-import { Badge, Button, Input, InputNumber, Modal, Radio, Select, Space, Steps, Table, Tag, Typography, Upload, message } from "antd";
+import { Badge, Button, Input, InputNumber, Modal, Progress, Radio, Select, Space, Steps, Table, Tag, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
@@ -22,6 +22,8 @@ const IMPORT_MODE_OPTIONS: Array<{ value: ImportMode; label: string; note: strin
     note: "Nếu chưa có sẽ thêm mới, nếu đã có sẽ cập nhật."
   }
 ];
+
+const COMMIT_BATCH_SIZE = 500;
 
 export interface ImportSystemField<TMapped extends object> {
   key: Extract<keyof TMapped, string>;
@@ -63,6 +65,23 @@ interface WorkbookExtractResult {
 interface ValidationErrorInsight {
   message: string;
   count: number;
+}
+
+interface CommitProgressState {
+  open: boolean;
+  status: "running" | "success" | "error";
+  totalRows: number;
+  processedRows: number;
+  inserted: number;
+  updated: number;
+  currentBatch: number;
+  totalBatches: number;
+  startedAt: number;
+  finishedAt?: number;
+  failedBatch?: number;
+  failedFromRow?: number;
+  failedToRow?: number;
+  errorMessage?: string;
 }
 
 function normalizeText(value: string): string {
@@ -203,6 +222,21 @@ function splitErrorNote(errorNote: string): string[] {
     .filter((item) => Boolean(item));
 }
 
+function chunkRows<T>(rows: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function formatDuration(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function ImportWizardModal<TMapped extends object>(props: ImportWizardModalProps<TMapped>) {
   const {
     open,
@@ -232,6 +266,8 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
   const [showAllMapping, setShowAllMapping] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"ALL" | "VALID" | "INVALID">("ALL");
   const [commitResult, setCommitResult] = useState<{ processed: number; inserted: number; updated: number } | null>(null);
+  const [commitProgress, setCommitProgress] = useState<CommitProgressState | null>(null);
+  const [progressTick, setProgressTick] = useState(0);
 
   useEffect(() => {
     if (!open) {
@@ -251,8 +287,21 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
       setShowAllMapping(true);
       setStatusFilter("ALL");
       setCommitResult(null);
+      setCommitProgress(null);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!commitProgress?.open || commitProgress.status !== "running") {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setProgressTick((value) => value + 1);
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [commitProgress?.open, commitProgress?.status]);
 
   const activeImportMode = IMPORT_MODE_OPTIONS.find((option) => option.value === importMode);
 
@@ -539,19 +588,123 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
       return;
     }
 
+    const validRows = validationResults.rows.filter((row) => row.status === "valid");
+    const batches = chunkRows(validRows, COMMIT_BATCH_SIZE);
+    const totalRows = validRows.length;
+    const startedAt = Date.now();
+
     setBusy(true);
+    setCommitProgress({
+      open: true,
+      status: "running",
+      totalRows,
+      processedRows: 0,
+      inserted: 0,
+      updated: 0,
+      currentBatch: batches.length > 0 ? 1 : 0,
+      totalBatches: batches.length,
+      startedAt
+    });
+
     try {
-      const result = await onCommit({
-        rows: validationResults.rows.filter((row) => row.status === "valid"),
-        importMode
-      });
+      let processed = 0;
+      let inserted = 0;
+      let updated = 0;
+
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        const batch = batches[batchIndex];
+        setCommitProgress((current) => current
+          ? {
+              ...current,
+              status: "running",
+              currentBatch: batchIndex + 1
+            }
+          : current);
+
+        try {
+          const batchResult = await onCommit({
+            rows: batch,
+            importMode
+          });
+          processed += batch.length;
+          inserted += batchResult.inserted;
+          updated += batchResult.updated;
+
+          setCommitProgress((current) => current
+            ? {
+                ...current,
+                processedRows: processed,
+                inserted,
+                updated,
+                currentBatch: Math.min(batchIndex + 2, batches.length)
+              }
+            : current);
+        } catch (error) {
+          const firstRow = batch[0]?.rowNumber;
+          const lastRow = validRows[validRows.length - 1]?.rowNumber;
+          setCommitProgress((current) => current
+            ? {
+                ...current,
+                status: "error",
+                processedRows: processed,
+                inserted,
+                updated,
+                failedBatch: batchIndex + 1,
+                currentBatch: batchIndex + 1,
+                failedFromRow: firstRow,
+                failedToRow: lastRow,
+                finishedAt: Date.now(),
+                errorMessage: error instanceof Error ? error.message : "Không nhập được dữ liệu."
+              }
+            : current);
+          return;
+        }
+      }
+
+      const result = { processed, inserted, updated };
       setCommitResult(result);
       await onCompleted();
       setCurrentStep(3);
+      setCommitProgress((current) => current
+        ? {
+            ...current,
+            status: "success",
+            processedRows: totalRows,
+            inserted,
+            updated,
+            currentBatch: batches.length,
+            finishedAt: Date.now()
+          }
+        : current);
     } finally {
       setBusy(false);
     }
   };
+
+  const closeCommitProgress = () => {
+    if (commitProgress?.status === "running") {
+      return;
+    }
+    setCommitProgress(null);
+  };
+
+  const elapsedSeconds = commitProgress
+    ? ((commitProgress.finishedAt ?? Date.now()) - commitProgress.startedAt) / 1000
+    : 0;
+  const estimatedRemainingSeconds = commitProgress && commitProgress.status === "running" && commitProgress.processedRows > 0
+    ? ((commitProgress.totalRows - commitProgress.processedRows) * elapsedSeconds) / commitProgress.processedRows
+    : 0;
+  const progressPercent = commitProgress?.totalRows
+    ? Math.round((commitProgress.processedRows / commitProgress.totalRows) * 100)
+    : 0;
+  const firstImportedRow = validationResults?.rows.find((row) => row.status === "valid")?.rowNumber;
+  const validRowNumbers = validationResults?.rows.filter((row) => row.status === "valid").map((row) => row.rowNumber) ?? [];
+  const lastValidRowNumber = validRowNumbers.length > 0 ? validRowNumbers[validRowNumbers.length - 1] : undefined;
+  const lastImportedRow = commitProgress && commitProgress.processedRows > 0
+    ? validRowNumbers[commitProgress.processedRows - 1]
+    : undefined;
+  const nextPendingRow = commitProgress ? validRowNumbers[commitProgress.processedRows] ?? firstImportedRow : firstImportedRow;
+  void progressTick;
 
   return (
     <Modal
@@ -572,7 +725,7 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
           <div className="misa-import__title">{title}</div>
           <Space size={18}>
             <QuestionCircleOutlined className="misa-import__header-icon" />
-            <CloseOutlined className="misa-import__header-icon" onClick={onCancel} />
+            <CloseOutlined className="misa-import__header-icon" onClick={busy ? undefined : onCancel} />
           </Space>
         </div>
 
@@ -848,7 +1001,7 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
         </div>
 
         <div className="misa-import__footer">
-          <Button className="misa-import__footer-left" onClick={onCancel}>
+          <Button className="misa-import__footer-left" onClick={onCancel} disabled={busy}>
             {currentStep === 3 ? "Đóng" : "Hủy"}
           </Button>
           <Space>
@@ -881,6 +1034,109 @@ export function ImportWizardModal<TMapped extends object>(props: ImportWizardMod
           </Space>
         </div>
       </div>
+
+      <Modal
+        open={Boolean(commitProgress?.open)}
+        title={
+          commitProgress?.status === "success"
+            ? `Nhập ${entityLabel.toLowerCase()} hoàn tất`
+            : commitProgress?.status === "error"
+              ? `Nhập ${entityLabel.toLowerCase()} bị gián đoạn`
+              : `Đang nhập ${entityLabel.toLowerCase()}`
+        }
+        centered
+        closable={commitProgress?.status !== "running"}
+        maskClosable={false}
+        keyboard={commitProgress?.status !== "running"}
+        onCancel={closeCommitProgress}
+        footer={
+          commitProgress?.status === "running"
+            ? null
+            : (
+                <Button type="primary" onClick={closeCommitProgress}>
+                  Đóng
+                </Button>
+              )
+        }
+      >
+        {commitProgress ? (
+          <div className="misa-import-progress">
+            <Progress
+              percent={progressPercent}
+              status={commitProgress.status === "error" ? "exception" : commitProgress.status === "success" ? "success" : "active"}
+            />
+
+            <div className="misa-import-progress__grid">
+              <div>
+                <span>Đã xử lý</span>
+                <strong>{commitProgress.processedRows.toLocaleString("vi-VN")} / {commitProgress.totalRows.toLocaleString("vi-VN")} dòng</strong>
+              </div>
+              <div>
+                <span>Batch</span>
+                <strong>{commitProgress.currentBatch} / {commitProgress.totalBatches}</strong>
+              </div>
+              <div>
+                <span>Thêm mới</span>
+                <strong>{commitProgress.inserted.toLocaleString("vi-VN")}</strong>
+              </div>
+              <div>
+                <span>Cập nhật</span>
+                <strong>{commitProgress.updated.toLocaleString("vi-VN")}</strong>
+              </div>
+              <div>
+                <span>Thời gian đã chạy</span>
+                <strong>{formatDuration(elapsedSeconds)}</strong>
+              </div>
+              <div>
+                <span>Ước tính còn lại</span>
+                <strong>{commitProgress.status === "running" && commitProgress.processedRows > 0 ? formatDuration(estimatedRemainingSeconds) : "-"}</strong>
+              </div>
+            </div>
+
+            <div className="misa-import-progress__range">
+              {commitProgress.processedRows > 0 && firstImportedRow !== undefined && lastImportedRow !== undefined ? (
+                <div>
+                  <span>Đã import:</span>
+                  <strong>Dòng {firstImportedRow.toLocaleString("vi-VN")} → {lastImportedRow.toLocaleString("vi-VN")}</strong>
+                </div>
+              ) : (
+                <div>
+                  <span>Đã import:</span>
+                  <strong>Chưa có dòng nào</strong>
+                </div>
+              )}
+
+              {commitProgress.status === "error" ? (
+                <div>
+                  <span>Chưa import:</span>
+                  <strong>
+                    Dòng {(commitProgress.failedFromRow ?? nextPendingRow ?? 0).toLocaleString("vi-VN")}
+                    {" "}→{" "}
+                    {(commitProgress.failedToRow ?? 0).toLocaleString("vi-VN")}
+                  </strong>
+                </div>
+              ) : commitProgress.status === "running" && nextPendingRow !== undefined && lastValidRowNumber !== undefined && nextPendingRow <= lastValidRowNumber ? (
+                <div>
+                  <span>Chưa import:</span>
+                  <strong>
+                    Dòng {nextPendingRow.toLocaleString("vi-VN")}
+                    {" "}→{" "}
+                    {lastValidRowNumber.toLocaleString("vi-VN")}
+                  </strong>
+                </div>
+              ) : null}
+            </div>
+
+            {commitProgress.status === "error" ? (
+              <div className="misa-import-progress__error">
+                <strong>Các dòng từ {(commitProgress.failedFromRow ?? nextPendingRow ?? 0).toLocaleString("vi-VN")} trở về sau chưa import.</strong>
+                {commitProgress.failedBatch ? <span>Batch lỗi: {commitProgress.failedBatch} / {commitProgress.totalBatches}</span> : null}
+                {commitProgress.errorMessage ? <span>{commitProgress.errorMessage}</span> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
     </Modal>
   );
 }

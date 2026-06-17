@@ -11,6 +11,8 @@ import type {
 } from "../types/partner.dto";
 import { AppError } from "../utils/errors";
 
+const PRODUCT_IMPORT_BATCH_SIZE = 500;
+
 interface PaginationInput {
   page: number;
   pageSize: number;
@@ -521,74 +523,102 @@ export class MasterDataService {
       throw new AppError("Excel file has no product rows", 400, "VALIDATION_ERROR");
     }
 
-    const result = await this.db.$transaction(
-      async (tx) => {
-        let inserted = 0;
-        let updated = 0;
-        const warehouseCache = new Map<string, { id: string; name: string }>();
-        const unitCache = new Map<string, { id: string }>();
+    const seenSkuCodes = new Set<string>();
+    const normalizedRows = rows.map((row) => {
+      const skuCode = row.skuCode.trim();
+      const name = row.name.trim();
+      if (!skuCode) {
+        throw new AppError(`Dòng ${row.rowNumber}: thiếu cột "Mã (*)"`, 400, "VALIDATION_ERROR");
+      }
+      if (!name) {
+        throw new AppError(`Dòng ${row.rowNumber}: thiếu cột "Tên (*)"`, 400, "VALIDATION_ERROR");
+      }
+      if (seenSkuCodes.has(skuCode)) {
+        throw new AppError(`Dòng ${row.rowNumber}: mã hàng bị trùng trong file import`, 400, "VALIDATION_ERROR");
+      }
+      seenSkuCodes.add(skuCode);
 
-        for (const row of rows) {
-          const skuCode = row.skuCode.trim();
-          const name = row.name.trim();
-          if (!skuCode) {
-            throw new AppError(`Dòng ${row.rowNumber}: thiếu cột "Mã (*)"`, 400, "VALIDATION_ERROR");
-          }
-          if (!name) {
-            throw new AppError(`Dòng ${row.rowNumber}: thiếu cột "Tên (*)"`, 400, "VALIDATION_ERROR");
-          }
+      return {
+        ...row,
+        skuCode,
+        name,
+        unitName: row.unitName?.trim() || "unit",
+        warehouseName: this.normalizeNullableText(row.warehouseName) ?? undefined,
+        sellingPrice: Number.isFinite(row.sellingPrice) ? Math.max(row.sellingPrice as number, 0) : 0
+      };
+    });
 
-          const normalizedUnitName = row.unitName?.trim() || "unit";
-          const unit = await this.resolveUnitInTx(tx, normalizedUnitName, unitCache);
+    const existingProducts = await this.db.product.findMany({
+      where: { skuCode: { in: [...seenSkuCodes] } },
+      select: { id: true, skuCode: true }
+    });
+    const existingBySkuCode = new Map(existingProducts.map((item) => [item.skuCode, { id: item.id }]));
+    const warehouseCache = new Map<string, { id: string; name: string }>();
+    const unitCache = new Map<string, { id: string }>();
 
-          const existing = await tx.product.findUnique({
-            where: { skuCode },
-            select: { id: true }
-          });
+    let inserted = 0;
+    let updated = 0;
 
-          const sellingPrice = Number.isFinite(row.sellingPrice) ? Math.max(row.sellingPrice as number, 0) : 0;
-          const warehouseName = this.normalizeNullableText(row.warehouseName);
-          const warehouse = await this.resolveWarehouseInTx(tx, warehouseName, warehouseCache);
+    for (const batch of this.chunkRows(normalizedRows, PRODUCT_IMPORT_BATCH_SIZE)) {
+      const batchResult = await this.db.$transaction(
+        async (tx) => {
+          let batchInserted = 0;
+          let batchUpdated = 0;
 
-          if (existing) {
-            await tx.product.update({
-              where: { id: existing.id },
+          for (const row of batch) {
+            const unit = await this.resolveUnitInTx(tx, row.unitName, unitCache);
+            const warehouse = await this.resolveWarehouseInTx(tx, row.warehouseName, warehouseCache);
+            const existing = existingBySkuCode.get(row.skuCode);
+
+            if (existing) {
+              await tx.product.update({
+                where: { id: existing.id },
+                data: {
+                  name: row.name,
+                  unitId: unit.id,
+                  unitName: row.unitName,
+                  warehouseId: warehouse?.id ?? null,
+                  warehouseName: warehouse?.name ?? row.warehouseName ?? null,
+                  sellingPrice: this.decimal(row.sellingPrice, 4)
+                }
+              });
+              batchUpdated += 1;
+              continue;
+            }
+
+            const created = await tx.product.create({
               data: {
-                name,
+                skuCode: row.skuCode,
+                name: row.name,
                 unitId: unit.id,
-                unitName: normalizedUnitName,
+                unitName: row.unitName,
                 warehouseId: warehouse?.id ?? null,
-                warehouseName: warehouse?.name ?? warehouseName,
-                sellingPrice: this.decimal(sellingPrice, 4)
-              }
+                warehouseName: warehouse?.name ?? row.warehouseName ?? null,
+                sellingPrice: this.decimal(row.sellingPrice, 4)
+              },
+              select: { id: true }
             });
-            updated += 1;
-          } else {
-            await tx.product.create({
-              data: {
-                skuCode,
-                name,
-                unitId: unit.id,
-                unitName: normalizedUnitName,
-                warehouseId: warehouse?.id ?? null,
-                warehouseName: warehouse?.name ?? warehouseName,
-                sellingPrice: this.decimal(sellingPrice, 4)
-              }
-            });
-            inserted += 1;
+            existingBySkuCode.set(row.skuCode, { id: created.id });
+            batchInserted += 1;
           }
-        }
 
-        return {
-          processed: rows.length,
-          inserted,
-          updated
-        };
-      },
-      this.importTxOptions
-    );
+          return {
+            inserted: batchInserted,
+            updated: batchUpdated
+          };
+        },
+        this.importTxOptions
+      );
 
-    return result;
+      inserted += batchResult.inserted;
+      updated += batchResult.updated;
+    }
+
+    return {
+      processed: normalizedRows.length,
+      inserted,
+      updated
+    };
   }
 
   async validateProductImport(input: {
@@ -701,107 +731,98 @@ export class MasterDataService {
       throw new AppError("Khong co dong hop le de ghi vao he thong", 400, "VALIDATION_ERROR");
     }
 
-    return this.db.$transaction(
-      async (tx) => {
-        let inserted = 0;
-        let updated = 0;
-        const warehouseCache = new Map<string, { id: string; name: string }>();
-        const unitCache = new Map<string, { id: string }>();
+    const skuCodes = validRows.map((row) => row.mappedData.skuCode);
+    const existingProducts = await this.db.product.findMany({
+      where: { skuCode: { in: skuCodes } },
+      select: { id: true, skuCode: true }
+    });
+    const existingBySkuCode = new Map(existingProducts.map((item) => [item.skuCode, { id: item.id }]));
 
-        for (const row of validRows) {
-          const mapped = row.mappedData;
-          const unitName = mapped.unitName.trim() || "unit";
-          const unit = await this.resolveUnitInTx(tx, unitName, unitCache);
-          const normalizedWarehouseName = this.normalizeNullableText(mapped.warehouseName);
-          const warehouse = await this.resolveWarehouseInTx(tx, normalizedWarehouseName, warehouseCache);
+    for (const row of validRows) {
+      const exists = existingBySkuCode.has(row.mappedData.skuCode);
+      if (input.importMode === "CREATE_ONLY" && exists) {
+        throw new AppError(`Dong ${row.rowNumber}: Ma hang da ton tai`, 400, "VALIDATION_ERROR");
+      }
+      if (input.importMode === "UPDATE_ONLY" && !exists) {
+        throw new AppError(`Dong ${row.rowNumber}: Khong tim thay ma hang de cap nhat`, 400, "VALIDATION_ERROR");
+      }
+    }
 
-          const existing = await tx.product.findUnique({
-            where: { skuCode: mapped.skuCode },
-            select: { id: true }
-          });
+    const warehouseCache = new Map<string, { id: string; name: string }>();
+    const unitCache = new Map<string, { id: string }>();
+    let inserted = 0;
+    let updated = 0;
 
-          const productPayload = {
-            skuCode: mapped.skuCode,
-            name: mapped.name,
-            unitId: unit.id,
-            unitName,
-            warehouseId: warehouse?.id ?? null,
-            warehouseName: warehouse?.name ?? normalizedWarehouseName,
-            sellingPrice: this.decimal(Math.max(mapped.sellingPrice ?? 0, 0), 4)
-          };
-          const openingStock = Math.max(mapped.openingStock ?? 0, 0);
+    for (const batch of this.chunkRows(validRows, PRODUCT_IMPORT_BATCH_SIZE)) {
+      const batchResult = await this.db.$transaction(
+        async (tx) => {
+          let batchInserted = 0;
+          let batchUpdated = 0;
 
-          if (input.importMode === "CREATE_ONLY") {
+          for (const row of batch) {
+            const mapped = row.mappedData;
+            const unitName = mapped.unitName.trim() || "unit";
+            const unit = await this.resolveUnitInTx(tx, unitName, unitCache);
+            const normalizedWarehouseName = this.normalizeNullableText(mapped.warehouseName);
+            const warehouse = await this.resolveWarehouseInTx(tx, normalizedWarehouseName, warehouseCache);
+            const existing = existingBySkuCode.get(mapped.skuCode);
+            const openingStock = Math.max(mapped.openingStock ?? 0, 0);
+
+            const productPayload = {
+              skuCode: mapped.skuCode,
+              name: mapped.name,
+              unitId: unit.id,
+              unitName,
+              warehouseId: warehouse?.id ?? null,
+              warehouseName: warehouse?.name ?? normalizedWarehouseName,
+              sellingPrice: this.decimal(Math.max(mapped.sellingPrice ?? 0, 0), 4),
+              stockQuantity: this.decimal(openingStock, 3)
+            };
+
             if (existing) {
-              throw new AppError(`Dong ${row.rowNumber}: Ma hang da ton tai`, 400, "VALIDATION_ERROR");
+              await tx.product.update({
+                where: { id: existing.id },
+                data: {
+                  name: productPayload.name,
+                  unitId: productPayload.unitId,
+                  unitName: productPayload.unitName,
+                  warehouseId: productPayload.warehouseId,
+                  warehouseName: productPayload.warehouseName,
+                  sellingPrice: productPayload.sellingPrice,
+                  stockQuantity: productPayload.stockQuantity
+                }
+              });
+              await this.upsertOpeningInventoryForProduct(tx, existing.id, openingStock);
+              batchUpdated += 1;
+              continue;
             }
+
             const createdProduct = await tx.product.create({
-              data: {
-                ...productPayload,
-                stockQuantity: this.decimal(openingStock, 3)
-              },
+              data: productPayload,
               select: { id: true }
             });
+            existingBySkuCode.set(mapped.skuCode, { id: createdProduct.id });
             await this.upsertOpeningInventoryForProduct(tx, createdProduct.id, openingStock);
-            inserted += 1;
-            continue;
+            batchInserted += 1;
           }
 
-          if (input.importMode === "UPDATE_ONLY") {
-            if (!existing) {
-              throw new AppError(`Dong ${row.rowNumber}: Khong tim thay ma hang de cap nhat`, 400, "VALIDATION_ERROR");
-            }
-            await tx.product.update({
-              where: { id: existing.id },
-              data: {
-                name: productPayload.name,
-                unitId: productPayload.unitId,
-                unitName: productPayload.unitName,
-                warehouseId: productPayload.warehouseId,
-                warehouseName: productPayload.warehouseName,
-                sellingPrice: productPayload.sellingPrice,
-                stockQuantity: this.decimal(openingStock, 3)
-              }
-            });
-            await this.upsertOpeningInventoryForProduct(tx, existing.id, openingStock);
-            updated += 1;
-            continue;
-          }
+          return {
+            inserted: batchInserted,
+            updated: batchUpdated
+          };
+        },
+        this.importTxOptions
+      );
 
-          const upsertedProduct = await tx.product.upsert({
-            where: { skuCode: mapped.skuCode },
-            update: {
-              name: productPayload.name,
-              unitId: productPayload.unitId,
-              unitName: productPayload.unitName,
-              warehouseId: productPayload.warehouseId,
-              warehouseName: productPayload.warehouseName,
-              sellingPrice: productPayload.sellingPrice,
-              stockQuantity: this.decimal(openingStock, 3)
-            },
-            create: {
-              ...productPayload,
-              stockQuantity: this.decimal(openingStock, 3)
-            },
-            select: { id: true }
-          });
-          await this.upsertOpeningInventoryForProduct(tx, upsertedProduct.id, openingStock);
+      inserted += batchResult.inserted;
+      updated += batchResult.updated;
+    }
 
-          if (existing) {
-            updated += 1;
-          } else {
-            inserted += 1;
-          }
-        }
-
-        return {
-          processed: validRows.length,
-          inserted,
-          updated
-        };
-      },
-      this.importTxOptions
-    );
+    return {
+      processed: validRows.length,
+      inserted,
+      updated
+    };
   }
 
   private getOpeningVoucherDate(): Date {
@@ -1782,6 +1803,14 @@ export class MasterDataService {
       default:
         return "Biến động kho";
     }
+  }
+
+  private chunkRows<T>(rows: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < rows.length; index += size) {
+      chunks.push(rows.slice(index, index + size));
+    }
+    return chunks;
   }
 
   private decimal(value: number, scale: number): Prisma.Decimal {

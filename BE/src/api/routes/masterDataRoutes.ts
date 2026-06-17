@@ -7,7 +7,12 @@ import { UserController } from "../controllers/userController";
 import { asyncHandler } from "../middlewares/asyncHandler";
 
 export const masterDataRouter = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 200 * 1024 * 1024
+  }
+});
 
 masterDataRouter.get("/warehouses", asyncHandler(MasterDataController.getWarehouses));
 masterDataRouter.post("/warehouses", asyncHandler(MasterDataController.createWarehouse));

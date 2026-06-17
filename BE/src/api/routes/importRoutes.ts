@@ -4,7 +4,12 @@ import { ImportController } from "../controllers/importController";
 import { asyncHandler } from "../middlewares/asyncHandler";
 
 export const importRouter = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 200 * 1024 * 1024
+  }
+});
 
 importRouter.post("/analyze", upload.single("file"), asyncHandler(ImportController.analyze));
 importRouter.post("/validate", asyncHandler(ImportController.validate));

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { JsonWebTokenError, TokenExpiredError } from "jsonwebtoken";
+import multer from "multer";
 import { ZodError } from "zod";
 import { logger } from "../../utils/logger";
 import { AppError } from "../../utils/errors";
@@ -18,6 +19,20 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
 
   if (error instanceof ZodError) {
     return sendError(res, traceId, 400, "VALIDATION_ERROR", "Payload validation failed", error.flatten());
+  }
+
+  if (error instanceof multer.MulterError) {
+    const message = error.code === "LIMIT_FILE_SIZE"
+      ? "File upload vượt quá giới hạn 200MB"
+      : "Upload file không hợp lệ";
+    return sendError(res, traceId, 413, "VALIDATION_ERROR", message, { code: error.code });
+  }
+
+  if (
+    error instanceof Error &&
+    (error.name === "PayloadTooLargeError" || "status" in error && (error as { status?: number }).status === 413)
+  ) {
+    return sendError(res, traceId, 413, "VALIDATION_ERROR", "Payload vượt quá giới hạn cho phép");
   }
 
   if (error instanceof AppError) {

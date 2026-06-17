@@ -2417,6 +2417,60 @@ body,
   justify-content: center;
 }
 
+.misa-import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.misa-import-progress__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.misa-import-progress__grid > div,
+.misa-import-progress__range > div {
+  min-height: 58px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.misa-import-progress__grid span,
+.misa-import-progress__range span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.misa-import-progress__grid strong,
+.misa-import-progress__range strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.misa-import-progress__range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.misa-import-progress__error {
+  border: 1px solid #ffccc7;
+  background: #fff2f0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #a8071a;
+}
+
 @media (max-width: 1024px) {
   .sales-report-viewer-header,
   .sales-report-grid-toolbar,
