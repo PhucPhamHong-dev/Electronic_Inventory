@@ -11,7 +11,8 @@ import type {
 } from "../types/partner.dto";
 import { AppError } from "../utils/errors";
 
-const PRODUCT_IMPORT_BATCH_SIZE = 500;
+const PRODUCT_IMPORT_BATCH_SIZE = 100;
+const PARTNER_IMPORT_BATCH_SIZE = 100;
 
 interface PaginationInput {
   page: number;
@@ -938,69 +939,90 @@ export class MasterDataService {
     }
 
     const partnerType: PartnerTypeValue = input.group === "SUPPLIER" ? "SUPPLIER" : "CUSTOMER";
+    const normalizedRows = await this.preparePartnerImportRows(
+      rows.map((row) => ({
+        rowNumber: row.rowNumber,
+        code: row.code?.trim() || "",
+        name: row.name.trim(),
+        phone: this.normalizeNullableText(row.phone) ?? "",
+        taxCode: this.normalizeNullableText(row.taxCode) ?? "",
+        address: this.normalizeNullableText(row.address) ?? ""
+      })),
+      partnerType
+    );
 
-    const result = await this.db.$transaction(
-      async (tx) => {
-        let inserted = 0;
-        let updated = 0;
+    const existingPartners = await this.db.partner.findMany({
+      where: { code: { in: normalizedRows.map((row) => row.code) } },
+      select: { id: true, code: true }
+    });
+    const existingByCode = new Map(existingPartners.map((item) => [item.code, { id: item.id }]));
 
-        for (const row of rows) {
-          const name = row.name.trim();
-          if (!name) {
-            throw new AppError(`Dòng ${row.rowNumber}: thiếu tên đối tác`, 400, "VALIDATION_ERROR");
-          }
+    let inserted = 0;
+    let updated = 0;
 
-          const normalizedCode = row.code?.trim() || (await this.generatePartnerCode(partnerType));
-          const phone = this.normalizeNullableText(row.phone);
-          const taxCode = this.normalizeNullableText(row.taxCode);
-          const address = this.normalizeNullableText(row.address);
+    for (const batch of this.chunkRows(normalizedRows, PARTNER_IMPORT_BATCH_SIZE)) {
+      const batchResult = await this.db.$transaction(
+        async (tx) => {
+          let batchInserted = 0;
+          let batchUpdated = 0;
 
-          const existing = normalizedCode
-            ? await tx.partner.findUnique({
-                where: { code: normalizedCode },
+          for (const row of batch) {
+            const existing = existingByCode.get(row.code);
+            const partnerPayload = {
+              code: row.code,
+              name: row.name,
+              group: input.group,
+              partnerType,
+              phone: this.normalizeNullableText(row.phone),
+              taxCode: this.normalizeNullableText(row.taxCode),
+              address: this.normalizeNullableText(row.address)
+            };
+
+            if (!row.name) {
+              throw new AppError(`Dòng ${row.rowNumber}: thiếu tên đối tác`, 400, "VALIDATION_ERROR");
+            }
+
+            if (!existing) {
+              const created = await tx.partner.create({
+                data: partnerPayload,
                 select: { id: true }
-              })
-            : null;
+              });
+              existingByCode.set(row.code, { id: created.id });
+              batchInserted += 1;
+              continue;
+            }
 
-          if (existing) {
             await tx.partner.update({
               where: { id: existing.id },
               data: {
-                name,
-                group: input.group,
-                partnerType,
-                phone,
-                taxCode,
-                address
+                name: partnerPayload.name,
+                group: partnerPayload.group,
+                partnerType: partnerPayload.partnerType,
+                phone: partnerPayload.phone,
+                taxCode: partnerPayload.taxCode,
+                address: partnerPayload.address
               }
             });
-            updated += 1;
-          } else {
-            await tx.partner.create({
-              data: {
-                code: normalizedCode,
-                name,
-                group: input.group,
-                partnerType,
-                phone,
-                taxCode,
-                address
-              }
-            });
-            inserted += 1;
+            batchUpdated += 1;
           }
-        }
 
-        return {
-          processed: rows.length,
-          inserted,
-          updated
-        };
-      },
-      this.importTxOptions
-    );
+          return {
+            inserted: batchInserted,
+            updated: batchUpdated
+          };
+        },
+        this.importTxOptions
+      );
 
-    return result;
+      inserted += batchResult.inserted;
+      updated += batchResult.updated;
+    }
+
+    return {
+      processed: normalizedRows.length,
+      inserted,
+      updated
+    };
   }
 
   async validatePartnerImport(input: {
@@ -1102,86 +1124,94 @@ export class MasterDataService {
     }
 
     const partnerType: PartnerTypeValue = input.group === "SUPPLIER" ? "SUPPLIER" : "CUSTOMER";
-
-    return this.db.$transaction(
-      async (tx) => {
-        let inserted = 0;
-        let updated = 0;
-
-        for (const row of validRows) {
-          const mapped = row.mappedData;
-          const code = mapped.code || (await this.generatePartnerCode(partnerType));
-          const existing = await tx.partner.findUnique({
-            where: { code },
-            select: { id: true }
-          });
-
-          const partnerPayload = {
-            code,
-            name: mapped.name,
-            group: input.group,
-            partnerType,
-            phone: this.normalizeNullableText(mapped.phone),
-            taxCode: this.normalizeNullableText(mapped.taxCode),
-            address: this.normalizeNullableText(mapped.address)
-          };
-
-          if (input.importMode === "CREATE_ONLY") {
-            if (existing) {
-              throw new AppError(`Dong ${row.rowNumber}: Ma doi tac da ton tai`, 400, "VALIDATION_ERROR");
-            }
-            await tx.partner.create({ data: partnerPayload });
-            inserted += 1;
-            continue;
-          }
-
-          if (input.importMode === "UPDATE_ONLY") {
-            if (!existing) {
-              throw new AppError(`Dong ${row.rowNumber}: Khong tim thay doi tac de cap nhat`, 400, "VALIDATION_ERROR");
-            }
-            await tx.partner.update({
-              where: { id: existing.id },
-              data: {
-                name: partnerPayload.name,
-                group: partnerPayload.group,
-                partnerType: partnerPayload.partnerType,
-                phone: partnerPayload.phone,
-                taxCode: partnerPayload.taxCode,
-                address: partnerPayload.address
-              }
-            });
-            updated += 1;
-            continue;
-          }
-
-          await tx.partner.upsert({
-            where: { code },
-            update: {
-              name: partnerPayload.name,
-              group: partnerPayload.group,
-              partnerType: partnerPayload.partnerType,
-              phone: partnerPayload.phone,
-              taxCode: partnerPayload.taxCode,
-              address: partnerPayload.address
-            },
-            create: partnerPayload
-          });
-
-          if (existing) {
-            updated += 1;
-          } else {
-            inserted += 1;
-          }
-        }
-
-        return {
-          processed: validRows.length,
-          inserted,
-          updated
-        };
-      },
-      this.importTxOptions
+    const preparedRows = await this.preparePartnerImportRows(
+      validRows.map((row) => ({
+        rowNumber: row.rowNumber,
+        ...row.mappedData
+      })),
+      partnerType
     );
+    const codes = preparedRows.map((row) => row.code);
+    const existingPartners = await this.db.partner.findMany({
+      where: { code: { in: codes } },
+      select: { id: true, code: true }
+    });
+    const existingByCode = new Map(existingPartners.map((item) => [item.code, { id: item.id }]));
+
+    for (const [index, row] of validRows.entries()) {
+      const prepared = preparedRows[index];
+      const code = prepared?.code ?? row.mappedData.code;
+      const exists = existingByCode.has(code);
+      if (input.importMode === "CREATE_ONLY" && exists) {
+        throw new AppError(`Dong ${row.rowNumber}: Ma doi tac da ton tai`, 400, "VALIDATION_ERROR");
+      }
+      if (input.importMode === "UPDATE_ONLY" && !exists) {
+        throw new AppError(`Dong ${row.rowNumber}: Khong tim thay doi tac de cap nhat`, 400, "VALIDATION_ERROR");
+      }
+    }
+
+    let inserted = 0;
+    let updated = 0;
+
+    for (const batch of this.chunkRows(preparedRows, PARTNER_IMPORT_BATCH_SIZE)) {
+      const batchResult = await this.db.$transaction(
+        async (tx) => {
+          let batchInserted = 0;
+          let batchUpdated = 0;
+
+          for (const row of batch) {
+            const existing = existingByCode.get(row.code);
+            const partnerPayload = {
+              code: row.code,
+              name: row.name,
+              group: input.group,
+              partnerType,
+              phone: this.normalizeNullableText(row.phone),
+              taxCode: this.normalizeNullableText(row.taxCode),
+              address: this.normalizeNullableText(row.address)
+            };
+
+            if (existing) {
+              await tx.partner.update({
+                where: { id: existing.id },
+                data: {
+                  name: partnerPayload.name,
+                  group: partnerPayload.group,
+                  partnerType: partnerPayload.partnerType,
+                  phone: partnerPayload.phone,
+                  taxCode: partnerPayload.taxCode,
+                  address: partnerPayload.address
+                }
+              });
+              batchUpdated += 1;
+              continue;
+            }
+
+            const created = await tx.partner.create({
+              data: partnerPayload,
+              select: { id: true }
+            });
+            existingByCode.set(row.code, { id: created.id });
+            batchInserted += 1;
+          }
+
+          return {
+            inserted: batchInserted,
+            updated: batchUpdated
+          };
+        },
+        this.importTxOptions
+      );
+
+      inserted += batchResult.inserted;
+      updated += batchResult.updated;
+    }
+
+    return {
+      processed: preparedRows.length,
+      inserted,
+      updated
+    };
   }
 
   async listPartners(input: ListPartnersQueryDto) {
@@ -1751,6 +1781,80 @@ export class MasterDataService {
       }
       throw error;
     }
+  }
+
+  private async preparePartnerImportRows(
+    rows: Array<{
+      rowNumber?: number;
+      code: string;
+      name: string;
+      phone: string;
+      taxCode: string;
+      address: string;
+    }>,
+    partnerType: PartnerTypeValue
+  ): Promise<Array<{
+    rowNumber: number;
+    code: string;
+    name: string;
+    phone: string;
+    taxCode: string;
+    address: string;
+  }>> {
+    const prefix = partnerType === "SUPPLIER" ? "NCC" : "KH";
+    let counter = await this.getLatestPartnerCounter(prefix);
+    const usedCodes = new Set(rows.map((row) => row.code.trim()).filter(Boolean));
+
+    return rows.map((row, index) => {
+      const name = row.name.trim();
+      if (!name) {
+        throw new AppError(`Dòng ${row.rowNumber ?? index + 2}: thiếu tên đối tác`, 400, "VALIDATION_ERROR");
+      }
+
+      let code = row.code.trim();
+      if (!code) {
+        do {
+          counter += 1;
+          code = this.buildPartnerCode(prefix, counter);
+        } while (usedCodes.has(code));
+        usedCodes.add(code);
+      }
+
+      return {
+        rowNumber: row.rowNumber ?? index + 2,
+        code,
+        name,
+        phone: row.phone,
+        taxCode: row.taxCode,
+        address: row.address
+      };
+    });
+  }
+
+  private async getLatestPartnerCounter(prefix: "KH" | "NCC"): Promise<number> {
+    const latestPartner = await this.db.partner.findFirst({
+      where: {
+        code: {
+          startsWith: prefix
+        }
+      },
+      select: {
+        code: true
+      },
+      orderBy: {
+        code: "desc"
+      }
+    });
+
+    const latestNumber = latestPartner?.code
+      ? Number.parseInt(latestPartner.code.slice(prefix.length), 10)
+      : 0;
+
+    return Number.isFinite(latestNumber) ? latestNumber : 0;
+  }
+
+  private buildPartnerCode(prefix: "KH" | "NCC", counter: number): string {
+    return `${prefix}${String(counter).padStart(3, "0")}`;
   }
 
   private async generatePartnerCode(target: PartnerTypeValue | PartnerGroupValue): Promise<string> {

@@ -92,7 +92,7 @@ const responseErrorInterceptor = (error: AxiosError<ApiResponse<unknown>>): Prom
 
 export const axiosClient = axios.create({
   baseURL: apiBaseUrl,
-  timeout: 30000
+  timeout: 600000
 });
 
 axiosClient.interceptors.request.use(requestInterceptor);

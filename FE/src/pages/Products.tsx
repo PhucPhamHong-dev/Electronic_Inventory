@@ -88,11 +88,11 @@ export function ProductsPage() {
   const summary = useMemo(() => {
     const items = productsQuery.data?.items ?? [];
     return {
-      totalProducts: items.length,
+      totalProducts: productsQuery.data?.total ?? 0,
       totalStock: items.reduce((sum, item) => sum + item.stockQuantity, 0),
       totalValue: items.reduce((sum, item) => sum + item.stockQuantity * item.costPrice, 0)
     };
-  }, [productsQuery.data?.items]);
+  }, [productsQuery.data?.items, productsQuery.data?.total]);
 
   const columns: ColumnsType<ProductOption> = [
     { title: "Mã hàng", dataIndex: "skuCode", key: "skuCode", width: 150 },
@@ -193,7 +193,7 @@ export function ProductsPage() {
       <div className="partner-page-summary">
         <div className="partner-summary-card partner-summary-card-accent">
           <div className="partner-summary-value">{formatNumber(summary.totalProducts)}</div>
-          <div className="partner-summary-label">Số mã hàng đang theo dõi</div>
+          <div className="partner-summary-label">Tổng số hàng hóa</div>
         </div>
         <div className="partner-summary-card">
           <div className={`partner-summary-value${summary.totalStock < 0 ? " stock-negative-text" : ""}`}>

@@ -106,6 +106,36 @@ export function PartnerManagementPage() {
       })
   });
 
+  const fetchAllPartners = async (input?: { includeDebtStatus?: boolean }): Promise<PartnerOption[]> => {
+    const pageSizeForExport = 200;
+    let currentPage = 1;
+    let total = 0;
+    const allItems: PartnerOption[] = [];
+
+    do {
+      const response = await fetchPartners({
+        page: currentPage,
+        pageSize: pageSizeForExport,
+        keyword,
+        group: activeGroup,
+        debtStatus: input?.includeDebtStatus && debtStatus !== "ALL" ? debtStatus : undefined
+      });
+      allItems.push(...response.items);
+      total = response.total;
+      if (!response.items.length) {
+        break;
+      }
+      currentPage += 1;
+    } while (allItems.length < total);
+
+    return allItems;
+  };
+
+  const partnerSummaryQuery = useQuery({
+    queryKey: ["partners-summary", activeGroup, keyword],
+    queryFn: () => fetchAllPartners()
+  });
+
   useEffect(() => {
     const validIds = new Set((partnersQuery.data?.items ?? []).map((item) => item.id));
     setSelectedPartnerRowKeys((prev) => prev.filter((id) => validIds.has(id)));
@@ -146,7 +176,7 @@ export function PartnerManagementPage() {
   });
 
   const summary = useMemo(() => {
-    const items = partnersQuery.data?.items ?? [];
+    const items = partnerSummaryQuery.data ?? [];
     const totalDebt = items.reduce((sum, item) => sum + Math.max(item.currentDebt, 0), 0);
     const settledCount = items.filter((item) => item.currentDebt <= 0).length;
 
@@ -155,7 +185,7 @@ export function PartnerManagementPage() {
       totalDebt,
       settledCount
     };
-  }, [partnersQuery.data?.items]);
+  }, [partnerSummaryQuery.data]);
 
   const columns: ColumnsType<PartnerOption> = [
     {
@@ -268,33 +298,9 @@ export function PartnerManagementPage() {
     URL.revokeObjectURL(url);
   };
 
-  const fetchAllPartnersForExport = async (): Promise<PartnerOption[]> => {
-    const pageSizeForExport = 200;
-    let currentPage = 1;
-    let total = 0;
-    const allItems: PartnerOption[] = [];
-
-    do {
-      const response = await fetchPartners({
-        page: currentPage,
-        pageSize: pageSizeForExport,
-        keyword,
-        group: activeGroup
-      });
-      allItems.push(...response.items);
-      total = response.total;
-      if (!response.items.length) {
-        break;
-      }
-      currentPage += 1;
-    } while (allItems.length < total);
-
-    return allItems;
-  };
-
   const handleExportPartnersExcel = async (): Promise<void> => {
     try {
-      const rows = await fetchAllPartnersForExport();
+      const rows = await fetchAllPartners();
       if (!rows.length) {
         notification.warning({
           message: "Không có dữ liệu để xuất Excel"
@@ -368,7 +374,7 @@ export function PartnerManagementPage() {
 
   const handleExportSupplierDebtExcel = async (mode: "ALL" | "PAYABLE_ONLY"): Promise<void> => {
     try {
-      const rows = await fetchAllPartnersForExport();
+      const rows = await fetchAllPartners();
       const exportRows = mode === "PAYABLE_ONLY" ? rows.filter((item) => getSupplierPayable(item.currentDebt) > 0) : rows;
       if (!exportRows.length) {
         notification.warning({

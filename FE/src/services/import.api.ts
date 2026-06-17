@@ -47,7 +47,7 @@ export async function analyzeImportFile(payload: {
     headers: {
       "Content-Type": "multipart/form-data"
     },
-    timeout: 120000
+    timeout: 600000
   });
 
   if (!response.data.success || !response.data.data) {
@@ -65,7 +65,7 @@ export async function validateImportData<TMapped extends GenericImportMappedData
   const response = await axiosClient.post<ApiResponse<ImportValidationResponse<GenericImportMappedData>>>(
     API_ENDPOINTS.IMPORT_VALIDATE,
     payload,
-    { timeout: 120000 }
+    { timeout: 600000 }
   );
   if (!response.data.success || !response.data.data) {
     throw new Error(response.data.error?.message || "Validate import failed");
@@ -84,7 +84,7 @@ export async function commitImportData<TMapped extends GenericImportMappedData>(
       inserted: number;
       updated: number;
     }>
-  >(API_ENDPOINTS.IMPORT_COMMIT, payload, { timeout: 120000 });
+  >(API_ENDPOINTS.IMPORT_COMMIT, payload, { timeout: 600000 });
   if (!response.data.success || !response.data.data) {
     throw new Error(response.data.error?.message || "Commit import failed");
   }

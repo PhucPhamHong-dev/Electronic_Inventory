@@ -23,7 +23,7 @@ const IMPORT_MODE_OPTIONS: Array<{ value: ImportMode; label: string; note: strin
   }
 ];
 
-const COMMIT_BATCH_SIZE = 500;
+const COMMIT_BATCH_SIZE = 100;
 
 export interface ImportSystemField<TMapped extends object> {
   key: Extract<keyof TMapped, string>;
