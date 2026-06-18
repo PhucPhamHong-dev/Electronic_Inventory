@@ -10,7 +10,7 @@ const service = new MasterDataService();
 
 const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().positive().max(200).default(20),
+  pageSize: z.coerce.number().int().positive().max(1000).default(20),
   keyword: z.string().optional(),
   type: z.enum(["SUPPLIER", "CUSTOMER", "BOTH"]).optional(),
   group: z.enum(["CUSTOMER", "SUPPLIER"]).optional(),

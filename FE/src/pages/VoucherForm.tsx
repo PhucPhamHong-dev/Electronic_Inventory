@@ -204,10 +204,16 @@ export function VoucherFormPage() {
   const debouncedProductSearch = useMemo(
     () =>
       debounce((keyword: string) => {
-        setProductKeyword(keyword);
+        setProductKeyword(keyword.trim());
       }, 300),
     []
   );
+
+  useEffect(() => {
+    return () => {
+      debouncedProductSearch.cancel();
+    };
+  }, [debouncedProductSearch]);
 
   const partnersQuery = useQuery({
     queryKey: ["voucher-form-partners"],
@@ -216,7 +222,7 @@ export function VoucherFormPage() {
 
   const productsQuery = useQuery({
     queryKey: ["voucher-form-products", productKeyword],
-    queryFn: () => fetchProducts({ page: 1, pageSize: 200, keyword: productKeyword })
+    queryFn: () => fetchProducts({ page: 1, pageSize: 50, keyword: productKeyword })
   });
 
   const quickAddPartnerMutation = useMutation({
@@ -498,7 +504,7 @@ export function VoucherFormPage() {
               </div>
             );
           }}
-          filterOption={(input, option) => ((option as ProductSelectOption | undefined)?.searchText ?? "").includes(input.toLowerCase())}
+          filterOption={false}
           onSearch={(keyword) => {
             debouncedProductSearch(keyword);
           }}

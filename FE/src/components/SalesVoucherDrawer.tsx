@@ -389,7 +389,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
 
   const productsQuery = useQuery({
     queryKey: ["sales-drawer-products", productKeyword],
-    queryFn: () => fetchProducts({ page: 1, pageSize: 200, keyword: productKeyword }),
+    queryFn: () => fetchProducts({ page: 1, pageSize: 50, keyword: productKeyword }),
     enabled: open
   });
 

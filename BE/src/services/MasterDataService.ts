@@ -334,9 +334,14 @@ export class MasterDataService {
           sellingPrice: true,
           stockQuantity: true
         },
-        orderBy: {
-          createdAt: "desc"
-        },
+        orderBy: keyword
+          ? [
+              { skuCode: "asc" },
+              { name: "asc" }
+            ]
+          : {
+              createdAt: "desc"
+            },
         skip,
         take: input.pageSize
       }),

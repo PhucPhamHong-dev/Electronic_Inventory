@@ -20,6 +20,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
+import debounce from "lodash.debounce";
 import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent } from "react";
 import * as XLSX from "xlsx-js-style";
 import { AppSelect } from "./common/AppSelect";
@@ -219,6 +220,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
   const [quickProductForm] = Form.useForm<QuickProductFormValues>();
   const [rows, setRows] = useState<QuotationRow[]>([createEmptyRow()]);
   const [quickProductOpen, setQuickProductOpen] = useState(false);
+  const [productKeyword, setProductKeyword] = useState("");
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [partnerModalMode, setPartnerModalMode] = useState<"create" | "edit">("create");
   const isEditMode = Boolean(quotationId);
@@ -230,9 +232,23 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
     enabled: open
   });
 
+  const debouncedProductSearch = useMemo(
+    () =>
+      debounce((keyword: string) => {
+        setProductKeyword(keyword.trim());
+      }, 300),
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedProductSearch.cancel();
+    };
+  }, [debouncedProductSearch]);
+
   const productsQuery = useQuery({
-    queryKey: ["quotation-drawer-products"],
-    queryFn: () => fetchProducts({ page: 1, pageSize: 200 }),
+    queryKey: ["quotation-drawer-products", productKeyword],
+    queryFn: () => fetchProducts({ page: 1, pageSize: 50, keyword: productKeyword }),
     enabled: open
   });
 
@@ -301,6 +317,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       quickProductForm.resetFields();
       setRows([createEmptyRow()]);
       setQuickProductOpen(false);
+      setProductKeyword("");
       setPartnerModalOpen(false);
       setPartnerModalMode("create");
       return;
@@ -313,6 +330,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
         notes: undefined
       });
       setRows([createEmptyRow()]);
+      setProductKeyword("");
     }
   }, [form, isEditMode, open, quickProductForm]);
 
@@ -501,9 +519,10 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
               </div>
             );
           }}
-          filterOption={(input, option) =>
-            ((option as ProductSelectOption | undefined)?.searchText ?? "").includes(input.toLowerCase())
-          }
+          filterOption={false}
+          onSearch={(keyword) => {
+            debouncedProductSearch(keyword);
+          }}
           dropdownRender={(menu) => (
             <>
               {menu}
