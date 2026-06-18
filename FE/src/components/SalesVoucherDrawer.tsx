@@ -926,6 +926,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
         if (record.rowType === "NOTE") return <Typography.Text type="secondary">Ghi chú</Typography.Text>;
         return (
           <AppSelect
+            className="voucher-product-select"
             id={buildCellId(record.key, "productId")}
             value={record.productId}
             showSearch

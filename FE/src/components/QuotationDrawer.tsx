@@ -512,6 +512,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       width: 140,
       render: (_value, record) => (
         <AppSelect
+          className="voucher-product-select"
           id={buildQuotationCellId(record.key, "productId")}
           value={record.productId}
           showSearch

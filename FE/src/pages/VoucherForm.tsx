@@ -499,6 +499,7 @@ export function VoucherFormPage() {
       width: 250,
       render: (_value, record) => (
         <AppSelect
+          className="voucher-product-select"
           id={buildVoucherCellId(record.key, "productId")}
           value={record.productId}
           showSearch

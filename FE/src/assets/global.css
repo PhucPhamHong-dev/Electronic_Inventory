@@ -135,6 +135,34 @@ body,
   height: 30px;
 }
 
+.voucher-detail-table .voucher-product-select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.voucher-detail-table .voucher-product-select .ant-select-selector {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.voucher-detail-table .voucher-product-select .ant-select-selection-item,
+.voucher-detail-table .voucher-product-select .ant-select-selection-placeholder,
+.voucher-detail-table .voucher-product-select .ant-select-selection-search,
+.voucher-detail-table .voucher-product-select .ant-select-selection-search-input {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.voucher-detail-table .voucher-product-select .ant-select-selection-item {
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
+}
+
 .voucher-detail-table .ant-input-number:hover,
 .voucher-detail-table .ant-input:hover,
 .voucher-detail-table .ant-select:hover .ant-select-selector {
@@ -691,6 +719,22 @@ body,
 .sales-voucher-detail-table .ant-input-number,
 .sales-voucher-detail-table .ant-picker {
   min-height: 28px !important;
+}
+
+.sales-voucher-detail-table .voucher-product-select,
+.sales-voucher-detail-table .voucher-product-select .ant-select-selector {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sales-voucher-detail-table .voucher-product-select .ant-select-selection-item {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
 }
 
 .sales-voucher-number-editor {
