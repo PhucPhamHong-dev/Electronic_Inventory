@@ -19,6 +19,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
+import debounce from "lodash.debounce";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPartner, fetchPartners, updatePartner } from "../services/masterData.api";
 import { createCashVoucher, downloadVoucherPdf, fetchUnpaidInvoices, fetchVoucherById } from "../services/voucher.api";
@@ -233,6 +234,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
   const [expenseActiveTab, setExpenseActiveTab] = useState<"ACCOUNTING" | "INVOICE">("ACCOUNTING");
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [partnerModalMode, setPartnerModalMode] = useState<"create" | "edit">("create");
+  const [partnerKeyword, setPartnerKeyword] = useState("");
   const isExpenseInvoicePaymentFlow = !invoiceBased && voucherType === "PAYMENT" && entryMode === "EXPENSE_INVOICE";
   const requiresPartner = paymentReason === "CUSTOMER_PAYMENT" || paymentReason === "SUPPLIER_PAYMENT";
   const requiresMandatoryPartner = requiresPartner || isExpenseInvoicePaymentFlow;
@@ -272,9 +274,23 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
     [isExpenseInvoicePaymentFlow, paymentReason, voucherType]
   );
 
+  const debouncedPartnerSearch = useMemo(
+    () =>
+      debounce((keyword: string) => {
+        setPartnerKeyword(keyword.trim());
+      }, 300),
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedPartnerSearch.cancel();
+    };
+  }, [debouncedPartnerSearch]);
+
   const partnersQuery = useQuery({
-    queryKey: ["cash-voucher-partners", paymentReason, invoiceBased],
-    queryFn: () => fetchPartners({ page: 1, pageSize: 200, group: partnerGroup }),
+    queryKey: ["cash-voucher-partners", paymentReason, invoiceBased, partnerGroup, partnerKeyword],
+    queryFn: () => fetchPartners({ page: 1, pageSize: 50, group: partnerGroup, keyword: partnerKeyword }),
     enabled: open && supportsPartnerLookup
   });
 
@@ -309,6 +325,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
       setExpenseActiveTab("ACCOUNTING");
       setPartnerModalOpen(false);
       setPartnerModalMode("create");
+      setPartnerKeyword("");
       return;
     }
 
@@ -334,6 +351,7 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
     setExpenseTaxRows(isExpenseInvoicePaymentFlow ? [createExpenseTaxRow()] : []);
     setCombineMultipleInvoices(false);
     setExpenseActiveTab("ACCOUNTING");
+    setPartnerKeyword("");
   }, [buildDefaultNote, form, isEditing, isExpenseInvoicePaymentFlow, open, paymentReason, voucherType]);
 
   useEffect(() => {
@@ -503,7 +521,11 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
   }, [partnersQuery.data?.items]);
 
   const partnerOptions = useMemo(
-    () => (partnersQuery.data?.items ?? []).map((item) => ({ value: item.id, label: item.name })),
+    () =>
+      (partnersQuery.data?.items ?? []).map((item) => ({
+        value: item.id,
+        label: item.code ? `${item.code} - ${item.name}` : item.name
+      })),
     [partnersQuery.data?.items]
   );
 
@@ -1489,10 +1511,11 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
                       <Form.Item label="Khách hàng" name="partnerId" rules={[{ required: true, message: "Bắt buộc chọn khách hàng" }]}>
                         <AppSelect
                           showSearch
-                          optionFilterProp="label"
+                          filterOption={false}
                           placeholder="Chọn khách hàng"
                           loading={partnersQuery.isFetching}
                           options={partnerOptions}
+                          onSearch={(keyword) => debouncedPartnerSearch(keyword)}
                           onChange={(value) => handlePartnerChange(value as string | undefined)}
                         />
                       </Form.Item>
@@ -1536,10 +1559,11 @@ export function CashVoucherDrawer(props: CashVoucherDrawerProps) {
                           <Space.Compact style={{ width: "100%" }}>
                             <AppSelect
                               showSearch
-                              optionFilterProp="label"
+                              filterOption={false}
                               placeholder={partnerPlaceholder}
                               loading={partnersQuery.isFetching}
                               options={partnerOptions}
+                              onSearch={(keyword) => debouncedPartnerSearch(keyword)}
                               onChange={(value) => handlePartnerChange(value as string | undefined)}
                               style={{ flex: 1 }}
                             />

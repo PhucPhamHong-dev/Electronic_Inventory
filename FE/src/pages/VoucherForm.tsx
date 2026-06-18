@@ -189,6 +189,7 @@ export function VoucherFormPage() {
   const [rows, setRows] = useState<VoucherRow[]>([createEmptyRow()]);
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
   const [productKeyword, setProductKeyword] = useState("");
+  const [partnerKeyword, setPartnerKeyword] = useState("");
   const [savedVoucher, setSavedVoucher] = useState<VoucherTransactionResult | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
@@ -209,15 +210,33 @@ export function VoucherFormPage() {
     []
   );
 
+  const debouncedPartnerSearch = useMemo(
+    () =>
+      debounce((keyword: string) => {
+        setPartnerKeyword(keyword.trim());
+      }, 300),
+    []
+  );
+
   useEffect(() => {
     return () => {
       debouncedProductSearch.cancel();
+      debouncedPartnerSearch.cancel();
     };
-  }, [debouncedProductSearch]);
+  }, [debouncedPartnerSearch, debouncedProductSearch]);
+
+  useEffect(() => {
+    setPartnerKeyword("");
+  }, [routeVoucherType]);
 
   const partnersQuery = useQuery({
-    queryKey: ["voucher-form-partners"],
-    queryFn: () => fetchPartners({ page: 1, pageSize: 200 })
+    queryKey: ["voucher-form-partners", routeVoucherType, partnerKeyword],
+    queryFn: () => fetchPartners({
+      page: 1,
+      pageSize: 50,
+      group: routeVoucherType === "PURCHASE" ? "SUPPLIER" : "CUSTOMER",
+      keyword: partnerKeyword
+    })
   });
 
   const productsQuery = useQuery({
@@ -745,12 +764,13 @@ export function VoucherFormPage() {
                 <AppSelect
                   showSearch
                   allowClear
-                  optionFilterProp="label"
+                  filterOption={false}
                   placeholder="Chọn khách hàng/NCC"
                   options={(partnersQuery.data?.items ?? []).map((item: PartnerOption) => ({
                     value: item.id,
-                    label: item.name
+                    label: item.code ? `${item.code} - ${item.name}` : item.name
                   }))}
+                  onSearch={(keyword) => debouncedPartnerSearch(keyword)}
                   dropdownRender={(menu) => (
                     <>
                       {menu}

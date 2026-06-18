@@ -1260,9 +1260,14 @@ export class MasterDataService {
           address: true,
           currentDebt: true
         },
-        orderBy: {
-          createdAt: "desc"
-        },
+        orderBy: keyword
+          ? [
+              { code: "asc" },
+              { name: "asc" }
+            ]
+          : {
+              createdAt: "desc"
+            },
         skip,
         take: input.pageSize
       }),

@@ -263,6 +263,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [quickProductOpen, setQuickProductOpen] = useState(false);
   const [productKeyword, setProductKeyword] = useState("");
+  const [partnerKeyword, setPartnerKeyword] = useState("");
   const [productSearchDrafts, setProductSearchDrafts] = useState<Record<string, string>>({});
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [partnerModalMode, setPartnerModalMode] = useState<"create" | "edit">("create");
@@ -367,9 +368,23 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     }
   };
 
+  const debouncedPartnerSearch = useMemo(
+    () =>
+      debounce((keyword: string) => {
+        setPartnerKeyword(keyword.trim());
+      }, 300),
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedPartnerSearch.cancel();
+    };
+  }, [debouncedPartnerSearch]);
+
   const partnersQuery = useQuery({
-    queryKey: [mode, "voucher-drawer-partners"],
-    queryFn: () => fetchPartners({ page: 1, pageSize: 200, group: isPurchaseMode ? "SUPPLIER" : "CUSTOMER" }),
+    queryKey: [mode, "voucher-drawer-partners", partnerKeyword],
+    queryFn: () => fetchPartners({ page: 1, pageSize: 50, group: isPurchaseMode ? "SUPPLIER" : "CUSTOMER", keyword: partnerKeyword }),
     enabled: open
   });
 
@@ -449,6 +464,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       setPaymentMethod("CASH");
       setQuickProductOpen(false);
       setProductKeyword("");
+      setPartnerKeyword("");
       setProductSearchDrafts({});
       setPartnerModalOpen(false);
       setPartnerModalMode("create");
@@ -462,6 +478,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       setPaymentFlow("UNPAID");
       setPaymentMethod("CASH");
       setProductKeyword("");
+      setPartnerKeyword("");
       setProductSearchDrafts({});
     }
   }, [form, isEditMode, open, quickProductForm]);
@@ -495,7 +512,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
           ? item.partnerType === "SUPPLIER" || item.partnerType === "BOTH"
           : item.partnerType === "CUSTOMER" || item.partnerType === "BOTH"
       )
-      .map((item) => ({ value: item.id, label: item.name })), [isPurchaseMode, partnersQuery.data?.items]);
+      .map((item) => ({ value: item.id, label: item.code ? `${item.code} - ${item.name}` : item.name })), [isPurchaseMode, partnersQuery.data?.items]);
 
   useEffect(() => {
     if (!voucherDetailQuery.data) return;
@@ -1138,7 +1155,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
             <div className="sales-voucher-meta-layout sales-voucher-meta-layout-misa">
               <div className="sales-voucher-panel sales-voucher-panel-main">
                 <Row gutter={12}>
-                  <Col xs={24} lg={7}><Form.Item label={partnerCodeLabel} name="partnerId" rules={[{ required: true, message: `Bắt buộc chọn ${isPurchaseMode ? "nhà cung cấp" : "khách hàng"}` }]}><Space.Compact style={{ width: "100%" }}><AppSelect showSearch optionFilterProp="label" placeholder={partnerPlaceholder} loading={partnersQuery.isFetching} options={partnerOptions} onChange={(value) => handlePartnerChange(value as string | undefined)} style={{ flex: 1 }} /><Button icon={<PlusOutlined />} onClick={openCreatePartnerModal} title={isPurchaseMode ? "Thêm nhà cung cấp" : "Thêm khách hàng"} /><Button icon={<EditOutlined />} onClick={openEditPartnerModal} title={isPurchaseMode ? "Sửa nhà cung cấp" : "Sửa khách hàng"} /></Space.Compact></Form.Item></Col>
+                  <Col xs={24} lg={7}><Form.Item label={partnerCodeLabel} name="partnerId" rules={[{ required: true, message: `Bắt buộc chọn ${isPurchaseMode ? "nhà cung cấp" : "khách hàng"}` }]}><Space.Compact style={{ width: "100%" }}><AppSelect showSearch filterOption={false} placeholder={partnerPlaceholder} loading={partnersQuery.isFetching} options={partnerOptions} onSearch={(keyword) => debouncedPartnerSearch(keyword)} onChange={(value) => handlePartnerChange(value as string | undefined)} style={{ flex: 1 }} /><Button icon={<PlusOutlined />} onClick={openCreatePartnerModal} title={isPurchaseMode ? "Thêm nhà cung cấp" : "Thêm khách hàng"} /><Button icon={<EditOutlined />} onClick={openEditPartnerModal} title={isPurchaseMode ? "Sửa nhà cung cấp" : "Sửa khách hàng"} /></Space.Compact></Form.Item></Col>
                   <Col xs={24} lg={11}><Form.Item label={partnerNameLabel} name="customerName"><Input placeholder={isPurchaseMode ? "Nhập tên nhà cung cấp" : "Nhập tên khách hàng"} /></Form.Item></Col>
                   <Col xs={24} lg={6}><Form.Item label="Mã số thuế" name="customerTaxCode"><Input placeholder="Nhập mã số thuế" /></Form.Item></Col>
                   <Col xs={24} lg={18}><Form.Item label="Địa chỉ" name="customerAddress"><Input placeholder="Nhập địa chỉ" /></Form.Item></Col>

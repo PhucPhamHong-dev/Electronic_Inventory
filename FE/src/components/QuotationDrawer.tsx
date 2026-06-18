@@ -221,14 +221,29 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
   const [rows, setRows] = useState<QuotationRow[]>([createEmptyRow()]);
   const [quickProductOpen, setQuickProductOpen] = useState(false);
   const [productKeyword, setProductKeyword] = useState("");
+  const [partnerKeyword, setPartnerKeyword] = useState("");
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [partnerModalMode, setPartnerModalMode] = useState<"create" | "edit">("create");
   const isEditMode = Boolean(quotationId);
   const selectedPartnerId = Form.useWatch("partnerId", form);
 
+  const debouncedPartnerSearch = useMemo(
+    () =>
+      debounce((keyword: string) => {
+        setPartnerKeyword(keyword.trim());
+      }, 300),
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedPartnerSearch.cancel();
+    };
+  }, [debouncedPartnerSearch]);
+
   const partnersQuery = useQuery({
-    queryKey: ["quotation-drawer-partners"],
-    queryFn: () => fetchPartners({ page: 1, pageSize: 200, group: "CUSTOMER" }),
+    queryKey: ["quotation-drawer-partners", partnerKeyword],
+    queryFn: () => fetchPartners({ page: 1, pageSize: 50, group: "CUSTOMER", keyword: partnerKeyword }),
     enabled: open
   });
 
@@ -318,6 +333,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       setRows([createEmptyRow()]);
       setQuickProductOpen(false);
       setProductKeyword("");
+      setPartnerKeyword("");
       setPartnerModalOpen(false);
       setPartnerModalMode("create");
       return;
@@ -331,6 +347,7 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
       });
       setRows([createEmptyRow()]);
       setProductKeyword("");
+      setPartnerKeyword("");
     }
   }, [form, isEditMode, open, quickProductForm]);
 
@@ -1132,12 +1149,13 @@ export function QuotationDrawer(props: QuotationDrawerProps) {
                         <AppSelect
                           showSearch
                           placeholder="Chọn khách hàng"
-                          optionFilterProp="label"
+                          filterOption={false}
                           style={{ width: "100%" }}
                           options={(partnersQuery.data?.items ?? []).map((item) => ({
                             value: item.id,
-                            label: item.name
+                            label: item.code ? `${item.code} - ${item.name}` : item.name
                           }))}
+                          onSearch={(keyword) => debouncedPartnerSearch(keyword)}
                           onChange={(value) => handlePartnerChange(value as string | undefined)}
                         />
                         <Button icon={<PlusOutlined />} onClick={openCreatePartnerModal} />
