@@ -35,6 +35,7 @@ import { requirePermission } from "../utils/permission";
 import { renderVoucherPdf } from "../utils/pdfRenderer";
 import { PdfService } from "../utils/PdfService";
 import { computeEditedFlag } from "../utils/voucher";
+import { runRetryableTransaction } from "../utils/transactionRetry";
 
 type Tx = Prisma.TransactionClient;
 
@@ -277,7 +278,8 @@ export class VoucherService {
 
     const startedAt = Date.now();
     try {
-      const created = await this.db.$transaction(
+      const created = await runRetryableTransaction(
+        this.db,
         async (tx) => {
           await this.setTransactionContext(tx, context);
           this.logStep(context, "Receipt Pre-flight", "Pre-flight Check");
@@ -326,7 +328,11 @@ export class VoucherService {
           this.logStep(context, "Receipt Post-processing", "Post-processing", { voucherId: voucher.id });
           return voucher;
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "createReceiptVoucher",
+          traceId: context.traceId
+        }
       );
 
       this.logStep(context, "Receipt Completed", "Completed", {
@@ -407,7 +413,8 @@ export class VoucherService {
 
     const startedAt = Date.now();
     try {
-      const created = await this.db.$transaction(
+      const created = await runRetryableTransaction(
+        this.db,
         async (tx) => {
         await this.setTransactionContext(tx, context);
         this.logStep(context, "Cash Voucher Pre-flight", "Pre-flight Check");
@@ -560,7 +567,11 @@ export class VoucherService {
 
         return voucher;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        operation: "createCashVoucher",
+        traceId: context.traceId
+      }
       );
 
       this.logStep(context, "Cash Voucher Completed", "Completed", {
@@ -601,7 +612,8 @@ export class VoucherService {
 
     const startedAt = Date.now();
     try {
-      const updatedVoucher = await this.db.$transaction(
+      const updatedVoucher = await runRetryableTransaction(
+        this.db,
         async (tx) => {
           await this.setTransactionContext(tx, context);
           this.logStep(context, "Pre-flight Snapshot", "Pre-flight Check", { voucherId });
@@ -670,7 +682,11 @@ export class VoucherService {
           this.logStep(context, "Update Post-processing", "Post-processing", { voucherId });
           return updated;
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "updateVoucher",
+          traceId: context.traceId
+        }
       );
 
       this.scheduleVoucherPdfGeneration(updatedVoucher.id, context);
@@ -710,16 +726,29 @@ export class VoucherService {
     }
 
     try {
-      const booked = await this.db.$transaction(async (tx) => {
-        await this.setTransactionContext(tx, context);
-        this.logStep(context, "Book Transaction", "Transaction Started", { voucherId });
+      const booked = await runRetryableTransaction(
+        this.db,
+        async (tx) => {
+          await this.setTransactionContext(tx, context);
+          this.logStep(context, "Book Transaction", "Transaction Started", { voucherId });
 
-        const updated = await tx.voucher.update({
-          where: { id: voucherId },
+        const marked = await tx.voucher.updateMany({
+          where: {
+            id: voucherId,
+            deletedAt: null,
+            status: VoucherStatus.DRAFT
+          },
           data: {
             status: VoucherStatus.BOOKED,
             updatedBy: context.user.id
           }
+        });
+        if (marked.count === 0) {
+          throw new AppError("Voucher already booked", 409, "VOUCHER_ALREADY_BOOKED");
+        }
+
+        const updated = await tx.voucher.findUniqueOrThrow({
+          where: { id: voucherId }
         });
 
         await tx.auditLog.create({
@@ -736,8 +765,14 @@ export class VoucherService {
           }
         });
 
-        return updated;
-      });
+          return updated;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "bookVoucher",
+          traceId: context.traceId
+        }
+      );
 
       this.logStep(context, "Book Completed", "Completed", { voucherId });
       return {
@@ -798,7 +833,8 @@ export class VoucherService {
     const startedAt = Date.now();
 
     try {
-      const settled = await this.db.$transaction(
+      const settled = await runRetryableTransaction(
+        this.db,
         async (tx) => {
           await this.setTransactionContext(tx, context);
           this.logStep(context, "Pay Transaction", "Transaction Started", { voucherId });
@@ -817,14 +853,27 @@ export class VoucherService {
               ? roundTo(currentDebt - totalNet, 4)
               : roundTo(currentDebt + totalNet, 4);
 
-          const settledVoucher = await tx.voucher.update({
-            where: { id: voucher.id },
+          const marked = await tx.voucher.updateMany({
+            where: {
+              id: voucher.id,
+              deletedAt: null,
+              paymentStatus: {
+                not: PaymentStatus.PAID
+              }
+            },
             data: {
               paymentStatus: PaymentStatus.PAID,
               paidAmount: this.decimal(totalNet, 4),
               paymentMethod: voucher.paymentMethod ?? PaymentMethod.CASH,
               updatedBy: context.user.id
             }
+          });
+          if (marked.count === 0) {
+            throw new AppError("Voucher already paid", 409, "VALIDATION_ERROR");
+          }
+
+          const settledVoucher = await tx.voucher.findUniqueOrThrow({
+            where: { id: voucher.id }
           });
 
           const counterVoucher = await tx.voucher.create({
@@ -907,7 +956,11 @@ export class VoucherService {
             pdfFilePath: settledVoucher.pdfFilePath ?? undefined
           };
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "payVoucher",
+          traceId: context.traceId
+        }
       );
 
       this.logStep(context, "Pay Completed", "Completed", {
@@ -948,9 +1001,11 @@ export class VoucherService {
     }
 
     try {
-      const result = await this.db.$transaction(async (tx) => {
-        await this.setTransactionContext(tx, context);
-        this.logStep(context, "Unpost Transaction", "Transaction Started", { voucherId });
+      const result = await runRetryableTransaction(
+        this.db,
+        async (tx) => {
+          await this.setTransactionContext(tx, context);
+          this.logStep(context, "Unpost Transaction", "Transaction Started", { voucherId });
 
         const [movements, ledgers] = await Promise.all([
           tx.inventoryMovement.findMany({
@@ -1010,8 +1065,14 @@ export class VoucherService {
         });
 
         this.logStep(context, "Unpost Post-processing", "Post-processing", { voucherId });
-        return updated;
-      });
+          return updated;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "unpostVoucher",
+          traceId: context.traceId
+        }
+      );
 
       this.logStep(context, "Unpost Completed", "Completed", { voucherId });
       return {
@@ -1048,9 +1109,11 @@ export class VoucherService {
     this.logStep(context, "Duplicate Permission", "Auth Check", { voucherId });
 
     try {
-      const result = await this.db.$transaction(async (tx) => {
-        await this.setTransactionContext(tx, context);
-        this.logStep(context, "Duplicate Transaction", "Transaction Started", { voucherId });
+      const result = await runRetryableTransaction(
+        this.db,
+        async (tx) => {
+          await this.setTransactionContext(tx, context);
+          this.logStep(context, "Duplicate Transaction", "Transaction Started", { voucherId });
 
         const duplicated = await tx.voucher.create({
           data: {
@@ -1107,8 +1170,14 @@ export class VoucherService {
         });
 
         this.logStep(context, "Duplicate Post-processing", "Post-processing", { voucherId: duplicated.id });
-        return duplicated;
-      });
+          return duplicated;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "duplicateVoucher",
+          traceId: context.traceId
+        }
+      );
 
       this.logStep(context, "Duplicate Completed", "Completed", { voucherId: result.id });
       return {
@@ -1146,9 +1215,11 @@ export class VoucherService {
     }
 
     try {
-      await this.db.$transaction(async (tx) => {
-        await this.setTransactionContext(tx, context);
-        this.logStep(context, "Delete Transaction", "Transaction Started", { voucherId });
+      await runRetryableTransaction(
+        this.db,
+        async (tx) => {
+          await this.setTransactionContext(tx, context);
+          this.logStep(context, "Delete Transaction", "Transaction Started", { voucherId });
 
         const [movements, ledgers] = await Promise.all([
           tx.inventoryMovement.findMany({
@@ -1192,7 +1263,13 @@ export class VoucherService {
             message: "Deleted draft voucher"
           }
         });
-      });
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "deleteVoucher",
+          traceId: context.traceId
+        }
+      );
 
       this.logStep(context, "Delete Completed", "Completed", { voucherId });
       return { id: voucherId };
@@ -1812,7 +1889,8 @@ export class VoucherService {
     const startedAt = Date.now();
 
     try {
-      const created = await this.db.$transaction(
+      const created = await runRetryableTransaction(
+        this.db,
         async (tx) => {
           await this.setTransactionContext(tx, input.context);
           this.logStep(input.context, "Pre-flight Product Lock", "Pre-flight Check");
@@ -1966,7 +2044,11 @@ export class VoucherService {
             pdfFilePath: voucher.pdfFilePath ?? undefined
           };
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          operation: "createVoucher",
+          traceId: input.context.traceId
+        }
       );
 
       this.scheduleVoucherPdfGeneration(created.voucherId, input.context);

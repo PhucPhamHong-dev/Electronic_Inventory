@@ -18,6 +18,7 @@ import type {
 import { AppError } from "../utils/errors";
 import { requirePermission } from "../utils/permission";
 import { roundTo } from "../utils/costing";
+import { runRetryableTransaction } from "../utils/transactionRetry";
 import { VoucherService } from "./VoucherService";
 
 interface ServiceContext {
@@ -224,7 +225,8 @@ export class QuotationService {
     while (attempt < 5) {
       attempt += 1;
       try {
-        const created = await this.db.$transaction(
+        const created = await runRetryableTransaction(
+          this.db,
           async (tx) => {
             await this.assertPartnerExists(tx, payload.partnerId);
             const computed = await this.computeLines(tx, payload.items);
@@ -263,7 +265,12 @@ export class QuotationService {
               }
             });
           },
-          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            operation: "createQuotation",
+            traceId: context.traceId,
+            retryOnUniqueConflict: (error) => this.isQuotationNoConflict(error)
+          }
         );
 
         return this.getQuotationById(created.id);
@@ -311,7 +318,8 @@ export class QuotationService {
       this.validateItems(payload.items);
     }
 
-    await this.db.$transaction(
+    await runRetryableTransaction(
+      this.db,
       async (tx) => {
         if (payload.partnerId) {
           await this.assertPartnerExists(tx, payload.partnerId);
@@ -369,7 +377,11 @@ export class QuotationService {
           }
         }
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        operation: "updateQuotation",
+        traceId: context.traceId
+      }
     );
 
     return this.getQuotationById(quotationId);

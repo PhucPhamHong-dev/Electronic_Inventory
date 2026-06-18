@@ -23,6 +23,7 @@ import {
 import type { MenuProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
+import debounce from "lodash.debounce";
 import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { AppSelect } from "./common/AppSelect";
 import { PartnerModal, type PartnerFormValues } from "./PartnerModal";
@@ -261,6 +262,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
   const [paymentFlow, setPaymentFlow] = useState<"UNPAID" | "IMMEDIATE">("UNPAID");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [quickProductOpen, setQuickProductOpen] = useState(false);
+  const [productKeyword, setProductKeyword] = useState("");
   const [productSearchDrafts, setProductSearchDrafts] = useState<Record<string, string>>({});
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [partnerModalMode, setPartnerModalMode] = useState<"create" | "edit">("create");
@@ -371,9 +373,23 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
     enabled: open
   });
 
+  const debouncedProductSearch = useMemo(
+    () =>
+      debounce((keyword: string) => {
+        setProductKeyword(keyword.trim());
+      }, 300),
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedProductSearch.cancel();
+    };
+  }, [debouncedProductSearch]);
+
   const productsQuery = useQuery({
-    queryKey: ["sales-drawer-products"],
-    queryFn: () => fetchProducts({ page: 1, pageSize: 200 }),
+    queryKey: ["sales-drawer-products", productKeyword],
+    queryFn: () => fetchProducts({ page: 1, pageSize: 200, keyword: productKeyword }),
     enabled: open
   });
 
@@ -432,6 +448,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       setPaymentFlow("UNPAID");
       setPaymentMethod("CASH");
       setQuickProductOpen(false);
+      setProductKeyword("");
       setProductSearchDrafts({});
       setPartnerModalOpen(false);
       setPartnerModalMode("create");
@@ -444,6 +461,7 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
       setRows([createEmptyRow()]);
       setPaymentFlow("UNPAID");
       setPaymentMethod("CASH");
+      setProductKeyword("");
       setProductSearchDrafts({});
     }
   }, [form, isEditMode, open, quickProductForm]);
@@ -915,9 +933,10 @@ export function SalesVoucherDrawer(props: SalesVoucherDrawerProps) {
                 </div>
               );
             }}
-            filterOption={(input, option) => ((option as ProductSelectOption | undefined)?.searchText ?? "").includes(input.toLowerCase())}
+            filterOption={false}
             onSearch={(keyword) => {
               setProductSearchDrafts((prev) => ({ ...prev, [record.key]: keyword }));
+              debouncedProductSearch(keyword);
             }}
             dropdownRender={(menu) => <><>{menu}</><Divider style={{ margin: "8px 0" }} /><Button type="text" icon={<PlusOutlined />} block onClick={() => setQuickProductOpen(true)}>+ Thêm mới (F9)</Button></>}
             onChange={(productId) => {

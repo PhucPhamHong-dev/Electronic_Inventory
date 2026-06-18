@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import { logger } from "../../utils/logger";
 import { AppError } from "../../utils/errors";
 import { sendError } from "../../utils/response";
+import { isRetryableTransactionError } from "../../utils/transactionRetry";
 
 function isTokenExpiredError(error: unknown): boolean {
   return error instanceof TokenExpiredError || (error instanceof Error && error.name === "TokenExpiredError");
@@ -45,6 +46,16 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
 
   if (isJsonWebTokenError(error)) {
     return sendError(res, traceId, 401, "UNAUTHORIZED", "Invalid access token. Please login again.");
+  }
+
+  if (isRetryableTransactionError(error)) {
+    return sendError(
+      res,
+      traceId,
+      409,
+      "CONCURRENCY_CONFLICT",
+      "Dữ liệu vừa được người dùng khác cập nhật. Vui lòng thử lại."
+    );
   }
 
   logger.error(
