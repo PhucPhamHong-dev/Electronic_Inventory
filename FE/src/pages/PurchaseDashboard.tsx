@@ -150,9 +150,10 @@ export function PurchaseDashboardPage() {
   });
   const deleteVoucherMutation = useMutation({
     mutationFn: (voucherId: string) => deleteVoucher(voucherId),
-    onSuccess: async () => {
+    onSuccess: async (_data, voucherId) => {
       message.success("X\u00f3a phi\u1ebfu nh\u1eadp th\u00e0nh c\u00f4ng.");
-      await Promise.all([vouchersQuery.refetch(), voucherDetailQuery.refetch()]);
+      setSelectedVoucherId((current) => (current === voucherId ? null : current));
+      await vouchersQuery.refetch();
     }
   });
   const tableActionLoading =

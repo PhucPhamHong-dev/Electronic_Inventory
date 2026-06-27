@@ -307,17 +307,19 @@ export function SalesDashboardPage() {
 
   const deleteVoucherMutation = useMutation({
     mutationFn: (voucherId: string) => deleteVoucher(voucherId),
-    onSuccess: async () => {
+    onSuccess: async (_data, voucherId) => {
       message.success("Xóa chứng từ thành công.");
-      await Promise.all([vouchersQuery.refetch(), voucherDetailQuery.refetch()]);
+      setSelectedVoucherId((current) => (current === voucherId ? null : current));
+      await vouchersQuery.refetch();
     }
   });
 
   const cancelQuotationMutation = useMutation({
     mutationFn: (quotationId: string) => deleteQuotation(quotationId),
-    onSuccess: async () => {
+    onSuccess: async (_data, quotationId) => {
       message.success("Đã hủy báo giá.");
-      await Promise.all([quotationsQuery.refetch(), quotationDetailQuery.refetch()]);
+      setSelectedQuotationId((current) => (current === quotationId ? null : current));
+      await quotationsQuery.refetch();
     }
   });
 
