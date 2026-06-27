@@ -625,7 +625,8 @@ export class VoucherService {
           ]);
 
           if (existingVoucher.status === VoucherStatus.BOOKED) {
-            await this.reverseVoucherEffects(tx, oldMovements, oldLedger);
+            const allowNegativeStock = await this.getAllowNegativeStock(tx);
+            await this.reverseVoucherEffects(tx, oldMovements, oldLedger, allowNegativeStock);
           }
 
           await Promise.all([
@@ -1233,7 +1234,8 @@ export class VoucherService {
         ]);
 
         if (movements.length > 0 || ledgers.length > 0) {
-          await this.reverseVoucherEffects(tx, movements, ledgers);
+          const allowNegativeStock = await this.getAllowNegativeStock(tx);
+          await this.reverseVoucherEffects(tx, movements, ledgers, allowNegativeStock);
         }
 
         await Promise.all([
@@ -2602,7 +2604,8 @@ export class VoucherService {
   private async reverseVoucherEffects(
     tx: Tx,
     movements: Array<{ productId: string; quantityChange: Prisma.Decimal }>,
-    ledgers: Array<{ partnerId: string; debit: Prisma.Decimal; credit: Prisma.Decimal }>
+    ledgers: Array<{ partnerId: string; debit: Prisma.Decimal; credit: Prisma.Decimal }>,
+    allowNegativeStock = false
   ): Promise<void> {
     if (movements.length > 0) {
       const movementByProduct = new Map<string, number>();
@@ -2616,7 +2619,7 @@ export class VoucherService {
       const productIds = Array.from(movementByProduct.keys());
       const products = await tx.product.findMany({
         where: { id: { in: productIds } },
-        select: { id: true, stockQuantity: true }
+        select: { id: true, skuCode: true, name: true, stockQuantity: true }
       });
       const productMap = new Map(products.map((product) => [product.id, product]));
 
@@ -2628,9 +2631,22 @@ export class VoucherService {
           }
 
           const nowStock = this.toNumber(product.stockQuantity);
-          const reverted = roundTo(nowStock - (movementByProduct.get(productId) ?? 0), 3);
-          if (reverted < 0) {
-            throw new AppError("Concurrency conflict while reversing stock", 409, "CONCURRENCY_CONFLICT");
+          const reversalQuantity = movementByProduct.get(productId) ?? 0;
+          const reverted = roundTo(nowStock - reversalQuantity, 3);
+          if (reverted < 0 && !allowNegativeStock) {
+            throw new AppError(
+              `Không thể xoá vì tồn kho hiện tại không đủ để hoàn tác phiếu cho sản phẩm ${product.name} (${product.skuCode}).`,
+              409,
+              "CONCURRENCY_CONFLICT",
+              {
+                productId,
+                productCode: product.skuCode,
+                productName: product.name,
+                currentStock: nowStock,
+                reversalQuantity,
+                resultingStockAfterReversal: reverted
+              }
+            );
           }
 
           await tx.product.update({

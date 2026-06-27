@@ -69,6 +69,8 @@ const responseErrorInterceptor = (error: AxiosError<ApiResponse<unknown>>): Prom
   const localizedMessage =
     errorCode === "VALIDATION_ERROR"
       ? validationDetailMessage || backendError?.message || fallbackMessage
+      : errorCode === "CONCURRENCY_CONFLICT"
+        ? backendError?.message || ErrorMap[errorCode] || fallbackMessage
       : errorCode
         ? ErrorMap[errorCode] ?? backendError?.message ?? fallbackMessage
         : fallbackMessage;
