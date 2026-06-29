@@ -390,41 +390,52 @@ export class QuotationService {
   async deleteQuotation(quotationId: string, context: ServiceContext): Promise<{ id: string; status: QuotationStatus }> {
     requirePermission(context.user.permissions.create_sales_voucher, SALES_PERMISSION);
 
-      const quotation = await this.db.quotation.findFirst({
-        where: { id: quotationId, deletedAt: null },
-      include: {
-        vouchers: {
-          where: {
-            deletedAt: null
+    const updated = await runRetryableTransaction(
+      this.db,
+      async (tx) => {
+        const quotation = await tx.quotation.findFirst({
+          where: { id: quotationId, deletedAt: null },
+          include: {
+            vouchers: {
+              where: {
+                deletedAt: null
+              },
+              select: {
+                id: true
+              }
+            }
+          }
+        });
+
+        if (!quotation) {
+          throw new AppError("Quotation not found", 404, "NOT_FOUND");
+        }
+        if (quotation.vouchers.length > 0) {
+          throw new AppError("Cannot delete quotation that has converted vouchers", 409, "VALIDATION_ERROR");
+        }
+
+        return tx.quotation.update({
+          where: { id: quotationId },
+          data: {
+            status: QuotationStatus.REJECTED,
+            deletedAt: new Date(),
+            deletedBy: context.user.id,
+            updatedBy: context.user.id,
+            lastEditedBy: context.user.id,
+            lastEditedAt: new Date()
           },
           select: {
-            id: true
+            id: true,
+            status: true
           }
-        }
+        });
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        operation: "deleteQuotation",
+        traceId: context.traceId
       }
-    });
-    if (!quotation) {
-      throw new AppError("Quotation not found", 404, "NOT_FOUND");
-    }
-    if (quotation.vouchers.length > 0) {
-      throw new AppError("Cannot delete quotation that has converted vouchers", 409, "VALIDATION_ERROR");
-    }
-
-      const updated = await this.db.quotation.update({
-        where: { id: quotationId },
-        data: {
-          status: QuotationStatus.REJECTED,
-          deletedAt: new Date(),
-          deletedBy: context.user.id,
-          updatedBy: context.user.id,
-          lastEditedBy: context.user.id,
-          lastEditedAt: new Date()
-        },
-        select: {
-          id: true,
-          status: true
-        }
-    });
+    );
 
     return {
       id: updated.id,
